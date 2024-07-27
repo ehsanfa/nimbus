@@ -1,0 +1,3 @@
+cluster:
+  consistencyLevel: "QUORUM"
+  replicationFactor: 3

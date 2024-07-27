@@ -5,28 +5,23 @@ import (
 	"sync"
 )
 
-type Storage struct {
-	store map[string]string
-	mu    sync.RWMutex
+type storage struct {
+	store sync.Map
 }
 
-func (s *Storage) Set(k, v string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.store[k] = v
+func (s *storage) set(k, v string) error {
+	s.store.Store(k, v)
 	return nil
 }
 
-func (s *Storage) Get(k string) (string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	val, ok := s.store[k]
+func (s *storage) get(k string) (string, error) {
+	val, ok := s.store.Load(k)
 	if !ok {
-		return "", errors.New("Key not found")
+		return "", errors.New("key not found")
 	}
-	return val, nil
+	return val.(string), nil
 }
 
-func NewStorage() Storage {
-	return Storage{store: make(map[string]string)}
+func newStorage() *storage {
+	return &storage{}
 }

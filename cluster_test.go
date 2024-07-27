@@ -5,30 +5,39 @@ import (
 )
 
 func TestMinNodesRequired(t *testing.T) {
-	if m := minNodesRequired(CONSISTENCY_LEVEL_ONE, 0); m != 1 {
+	var m int
+	m = NewCluster([]*node{}, 0, CONSISTENCY_LEVEL_ONE).minNodesRequired()
+	if m != 1 {
 		t.Error("Error")
 	}
-	if m := minNodesRequired(CONSISTENCY_LEVEL_ONE, 3); m != 1 {
+	m = NewCluster([]*node{}, 3, CONSISTENCY_LEVEL_ONE).minNodesRequired()
+	if m != 1 {
 		t.Error("Error")
 	}
-	if m := minNodesRequired(CONSISTENCY_LEVEL_QUORUM, 3); m != 2 {
+	m = NewCluster([]*node{}, 3, CONSISTENCY_LEVEL_QUORUM).minNodesRequired()
+	if m != 2 {
 		t.Error("Error")
 	}
-	if m := minNodesRequired(CONSISTENCY_LEVEL_ALL, 3); m != 3 {
+	m = NewCluster([]*node{}, 3, CONSISTENCY_LEVEL_ALL).minNodesRequired()
+	if m != 3 {
 		t.Error("Error")
 	}
 }
 
 func TestIsHealthy(t *testing.T) {
 	var c cluster
-	c = NewCluster([]node{NewNode("localhost", 9000, "node1")}, 3, CONSISTENCY_LEVEL_QUORUM)
+	n := NewNode("localhost:9000", 1)
+	c = NewCluster([]*node{&n}, 3, CONSISTENCY_LEVEL_QUORUM)
 	if c.isHealthy() != false {
 		t.Error("error")
 	}
-	c = NewCluster([]node{
-		NewNode("localhost", 9000, "node1"),
-		NewNode("localhost", 9001, "node2"),
-		NewNode("localhost", 9002, "node3"),
+	n1 := NewNode("localhost:9000", 1)
+	n2 := NewNode("localhost:9000", 2)
+	n3 := NewNode("localhost:9000", 3)
+	c = NewCluster([]*node{
+		&n1,
+		&n2,
+		&n3,
 	}, 3, CONSISTENCY_LEVEL_QUORUM)
 	if c.isHealthy() != true {
 		t.Error("error")

@@ -22,7 +22,7 @@ func GetToken(k string) Token {
 Suggests the partition for a new node
 numberOfNodes reprents how many nodes are already in the cluster
 */
-func SuggestPartition() Token {
+func SuggestToken() Token {
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return Token(rnd.Intn(math.MaxInt64))
 }

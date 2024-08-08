@@ -36,11 +36,16 @@ func (c cluster) minNodesRequired() int {
 }
 
 func (c cluster) isHealthy() bool {
-	return c.length() >= c.minNodesRequired()
-}
-
-func (c cluster) length() int {
-	return c.ring.length
+	healthyNodes := 0
+	for _, elem := range c.ring.elemsByToken {
+		if elem.node.isOk() {
+			healthyNodes++
+		}
+		if healthyNodes >= c.minNodesRequired() {
+			return true
+		}
+	}
+	return false
 }
 
 func (c cluster) getResponsibleNodes(token partition.Token) ([]*node, error) {
@@ -71,8 +76,39 @@ func (c cluster) nodes() map[partition.Token]*node {
 	return nodes
 }
 
+func (c cluster) updateNode(node *node) error {
+	knownNode := c.ring.elemsByToken[node.token]
+	if knownNode == nil {
+		return c.addNode(node)
+	}
+	if knownNode.token == node.token {
+		c.ring.elemsByToken[node.token].node = node
+		return nil
+	}
+	switch node.status {
+	case NODE_STATUS_OK:
+		return c.addNode(node)
+	case NODE_STATUS_UNREACHABLE:
+		return c.removeNode(node)
+	}
+
+	return nil
+}
+
+func (c cluster) nodeFromToken(t partition.Token) *node {
+	elem, ok := c.ring.elemsByToken[t]
+	if !ok {
+		return nil
+	}
+	return elem.node
+}
+
 func (c cluster) addNode(node *node) error {
 	return c.ring.push(node)
+}
+
+func (c cluster) removeNode(node *node) error {
+	return c.ring.unlink(node)
 }
 
 func NewCluster(nodes []*node, rf replicationFactor, cl consistencyLevel) cluster {

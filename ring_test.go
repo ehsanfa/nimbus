@@ -4,32 +4,32 @@ import "testing"
 
 func TestClosestElementBefore(t *testing.T) {
 	var node node
-	node1 := NewNode("localhost:9000", 2)
-	node2 := NewNode("localhost:9001", 5)
-	node3 := NewNode("localhost:9002", 10)
+	node1 := NewNode("localhost:9000", 2, NODE_STATUS_OK)
+	node2 := NewNode("localhost:9001", 5, NODE_STATUS_OK)
+	node3 := NewNode("localhost:9002", 10, NODE_STATUS_OK)
 	r := NewRing(&node1, &node2, &node3)
-	node = NewNode("localhost:9004", 3)
+	node = NewNode("localhost:9004", 3, NODE_STATUS_OK)
 	if elem := r.getClosestElemBefore(node.token); *elem.node != node1 {
 		t.Error("invalid closest elem", elem.node.token, node1.token)
 	}
-	node = NewNode("localhost:9004", 50)
+	node = NewNode("localhost:9004", 50, NODE_STATUS_OK)
 	if elem := r.getClosestElemBefore(node.token); *elem.node != node3 {
 		t.Error("invalid closest elem", elem.node.token, node3.token)
 	}
-	node = NewNode("localhost:9004", 7)
+	node = NewNode("localhost:9004", 7, NODE_STATUS_OK)
 	if elem := r.getClosestElemBefore(node.token); *elem.node != node2 {
 		t.Error("invalid closest elem", elem.node.token, node2.token)
 	}
-	node = NewNode("localhost:9004", 1)
+	node = NewNode("localhost:9004", 1, NODE_STATUS_OK)
 	if elem := r.getClosestElemBefore(node.token); *elem.node != node3 {
 		t.Error("invalid closest elem", elem.node.token, node3.token)
 	}
 }
 
 func TestRingPush(t *testing.T) {
-	node1 := NewNode("localhost:9000", 10)
-	node2 := NewNode("localhost:9001", 20)
-	node3 := NewNode("localhost:9002", 30)
+	node1 := NewNode("localhost:9000", 10, NODE_STATUS_OK)
+	node2 := NewNode("localhost:9001", 20, NODE_STATUS_OK)
+	node3 := NewNode("localhost:9002", 30, NODE_STATUS_OK)
 	r := NewRing(&node1, &node2, &node3)
 	if r.length != 3 {
 		t.Error("error")
@@ -56,13 +56,13 @@ func TestRingPush(t *testing.T) {
 		t.Error("unexpected last node")
 	}
 
-	node4 := NewNode("localhost:9003", 4)
+	node4 := NewNode("localhost:9003", 4, NODE_STATUS_OK)
 	r.push(&node4)
 	if r.first.node.token != node4.token {
 		t.Error("expected the first node to change")
 	}
 
-	node5 := NewNode("localhost:9003", 400)
+	node5 := NewNode("localhost:9003", 400, NODE_STATUS_OK)
 	r.push(&node5)
 	if r.last.node.token != node5.token {
 		t.Error("expected the last node to change")
@@ -70,11 +70,11 @@ func TestRingPush(t *testing.T) {
 }
 
 func TestRingUnlink(t *testing.T) {
-	node1 := NewNode("localhost:9000", 1)
-	node2 := NewNode("localhost:9001", 2)
-	node3 := NewNode("localhost9002", 3)
+	node1 := NewNode("localhost:9000", 1, NODE_STATUS_OK)
+	node2 := NewNode("localhost:9001", 2, NODE_STATUS_OK)
+	node3 := NewNode("localhost9002", 3, NODE_STATUS_OK)
 	r := NewRing(&node1, &node2, &node3)
-	node4 := NewNode("localhost:9003", 4)
+	node4 := NewNode("localhost:9003", 4, NODE_STATUS_OK)
 	if err := r.unlink(&node4); err == nil {
 		t.Error("expected to get errors while unlinking a node which doesn't exist")
 	}
@@ -115,9 +115,9 @@ func TestNthNode(t *testing.T) {
 	if r.nthElem(1) != nil {
 		t.Error("expected to receive nil")
 	}
-	node1 := NewNode("localhost:9000", 1)
-	node2 := NewNode("localhost:9001", 2)
-	node3 := NewNode("localhost:9002", 3)
+	node1 := NewNode("localhost:9000", 1, NODE_STATUS_OK)
+	node2 := NewNode("localhost:9001", 2, NODE_STATUS_OK)
+	node3 := NewNode("localhost:9002", 3, NODE_STATUS_OK)
 	r = NewRing(&node1, &node2, &node3)
 	if r.nthElem(2) == nil || r.nthElem(2).node != &node3 {
 		t.Error("expected to receive node 3", r.nthElem(2).node, &node3)

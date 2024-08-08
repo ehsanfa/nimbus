@@ -1,0 +1,16 @@
+services:
+  node1:
+    image: golang:1.22.5
+    command: go run .
+    volumes:
+      - .:/go
+    environment:
+      - PORT=9091
+  
+  node2:
+    image: golang:1.22.5
+    command: go run .
+    volumes:
+      - .:/go
+    environment:
+      - INITIATOR=node1:9091

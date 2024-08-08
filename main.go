@@ -37,6 +37,49 @@ func serve(ctx context.Context, l net.Listener, handler *rpc.Server) {
 	}()
 }
 
+func getToken() partition.Token {
+	var token partition.Token
+
+	givenToken := os.Getenv("TOKEN")
+	if givenToken != "" {
+		gt, err := strconv.Atoi(givenToken)
+		if err != nil {
+			panic(err)
+		}
+		return partition.Token(gt)
+	}
+
+	tokenFile, err := os.ReadFile("/tmp/nimbus/token.nimbus")
+	if os.IsNotExist(err) {
+		var err error
+		err = os.Mkdir("/tmp/nimbus", 0755)
+		if err != nil {
+			if !os.IsExist(err) {
+				panic(err)
+			}
+		}
+		c, err := os.Create("/tmp/nimbus/token.nimbus")
+		if err != nil {
+			panic(err)
+		}
+		c.Close()
+		token = partition.SuggestToken()
+		err = os.WriteFile("/tmp/nimbus/token.nimbus", []byte(fmt.Sprintf("%d", token)), 0755)
+		if err != nil {
+			panic(err)
+		}
+		return token
+	} else if err != nil {
+		panic(err)
+	} else {
+		tInt, err := strconv.Atoi(string(tokenFile))
+		if err != nil {
+			panic(err)
+		}
+		return partition.Token(tInt)
+	}
+}
+
 func main() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
@@ -47,9 +90,13 @@ func main() {
 		cancel()
 		done <- true
 	}()
-	givenAddress := os.Getenv("ADDRESS")
-	if givenAddress == "" {
-		givenAddress = "localhost"
+	givenHostname := os.Getenv("HOST")
+	if givenHostname == "" {
+		hostName, err := os.Hostname()
+		if err != nil {
+			panic(err)
+		}
+		givenHostname = hostName
 	}
 	givenPort := os.Getenv("PORT")
 	if givenPort == "" {
@@ -59,26 +106,23 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	address := fmt.Sprintf("%s:%d", givenAddress, port)
+	address := fmt.Sprintf("%s:%d", givenHostname, port)
 	l, err := net.Listen("tcp", address)
 	if err != nil {
 		panic(err)
 	}
+	defer l.Close()
+
 	address = l.Addr().String()
 	fmt.Println("serving on ", address)
+	udpAddress := "224.1.1.1:5008"
 
-	self := NewNode(address, partition.SuggestPartition())
+	go setupMarcoReceiver(address, udpAddress)
 
-	cluster := NewCluster([]*node{&self}, 5, CONSISTENCY_LEVEL_QUORUM)
-
+	self := NewNode(address, getToken(), NODE_STATUS_OK)
+	cluster := NewCluster([]*node{&self}, 5, CONSISTENCY_LEVEL_ONE)
 	initiatorAddress := os.Getenv("INITIATOR")
 	gossip := NewGossip(ctx, cluster, &self)
-	if initiatorAddress != "" {
-		err := gossip.catchUp(initiatorAddress)
-		if err != nil {
-			panic(err)
-		}
-	}
 
 	coordinator := NewCoordinator(ctx, &self, cluster)
 
@@ -89,6 +133,28 @@ func main() {
 	handler.Register(gossip)
 	handler.Register(coordinator)
 	serve(ctx, l, handler)
+
+	clusterType := os.Getenv("CLUSTER_TYPE")
+	if clusterType == "STANDALONE" {
+		<-done
+		return
+	}
+
+	if initiatorAddress == "" {
+		marcoPoloCtx, cancel := context.WithCancel(ctx)
+		go marco(marcoPoloCtx, udpAddress)
+		initiatorAddress, err = listenPoloReceiver(marcoPoloCtx, address, udpAddress)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		fmt.Println("initiator address", initiatorAddress)
+		cancel()
+	}
+	catchupDone := make(chan bool)
+	go gossip.catchUp(ctx, initiatorAddress, catchupDone)
+	<-catchupDone
+
 	gossip.start()
 	<-done
 }

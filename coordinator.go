@@ -62,9 +62,10 @@ func (c Coordinator) prepare(nodes []*node, key string, propose int64) bool {
 	var wg sync.WaitGroup
 	consensus := false
 	for _, node := range nodes {
-		client, err := node.getClient()
+		client, err := getClient(node.address)
 		if err != nil {
-			panic(err) // for now
+			fmt.Println(err)
+			return false
 		}
 		wg.Add(1)
 		go func() {
@@ -94,9 +95,10 @@ func (c Coordinator) accept(nodes []*node, key, value string, proposal int64) bo
 	var wg sync.WaitGroup
 	consensus := false
 	for _, node := range nodes {
-		client, err := node.getClient()
+		client, err := getClient(node.address)
 		if err != nil {
-			panic(err) // for now
+			fmt.Println(err)
+			return false
 		}
 		wg.Add(1)
 		go func() {
@@ -125,9 +127,10 @@ func (c Coordinator) commit(nodes []*node, key string, proposal int64) bool {
 	var wg sync.WaitGroup
 	consensus := false
 	for _, node := range nodes {
-		client, err := node.getClient()
+		client, err := getClient(node.address)
 		if err != nil {
-			panic(err) // for now
+			fmt.Println(err)
+			return false
 		}
 		wg.Add(1)
 		go func() {
@@ -164,7 +167,7 @@ func (c Coordinator) Get(req *CoordinateRequestGet, resp *CoordinateResponseGet)
 		return err
 	}
 	for _, node := range nodes {
-		client, err := node.getClient()
+		client, err := getClient(node.address)
 		if err != nil {
 			panic(err) // for now
 		}

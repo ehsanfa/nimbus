@@ -1,80 +1,84 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/ehsanfa/nimbus/partition"
+)
 
 func TestClosestElementBefore(t *testing.T) {
 	var node node
-	node1 := NewNode("localhost:9000", 2, NODE_STATUS_OK)
-	node2 := NewNode("localhost:9001", 5, NODE_STATUS_OK)
-	node3 := NewNode("localhost:9002", 10, NODE_STATUS_OK)
+	node1 := NewNode("localhost:9000", []partition.Token{2}, NODE_STATUS_OK)
+	node2 := NewNode("localhost:9001", []partition.Token{5}, NODE_STATUS_OK)
+	node3 := NewNode("localhost:9002", []partition.Token{10}, NODE_STATUS_OK)
 	r := NewRing(&node1, &node2, &node3)
-	node = NewNode("localhost:9004", 3, NODE_STATUS_OK)
-	if elem := r.getClosestElemBefore(node.token); *elem.node != node1 {
-		t.Error("invalid closest elem", elem.node.token, node1.token)
+	node = NewNode("localhost:9004", []partition.Token{3}, NODE_STATUS_OK)
+	if elem := r.getClosestElemBefore(node.id); elem.node.id != node1.id {
+		t.Error("invalid closest elem", elem.node.id, node1.id)
 	}
-	node = NewNode("localhost:9004", 50, NODE_STATUS_OK)
-	if elem := r.getClosestElemBefore(node.token); *elem.node != node3 {
-		t.Error("invalid closest elem", elem.node.token, node3.token)
+	node = NewNode("localhost:9004", []partition.Token{50}, NODE_STATUS_OK)
+	if elem := r.getClosestElemBefore(node.id); elem.node.id != node3.id {
+		t.Error("invalid closest elem", elem.node.id, node3.id)
 	}
-	node = NewNode("localhost:9004", 7, NODE_STATUS_OK)
-	if elem := r.getClosestElemBefore(node.token); *elem.node != node2 {
-		t.Error("invalid closest elem", elem.node.token, node2.token)
+	node = NewNode("localhost:9004", []partition.Token{7}, NODE_STATUS_OK)
+	if elem := r.getClosestElemBefore(node.id); elem.node.id != node2.id {
+		t.Error("invalid closest elem", elem.node.id, node2.id)
 	}
-	node = NewNode("localhost:9004", 1, NODE_STATUS_OK)
-	if elem := r.getClosestElemBefore(node.token); *elem.node != node3 {
-		t.Error("invalid closest elem", elem.node.token, node3.token)
+	node = NewNode("localhost:9004", []partition.Token{1}, NODE_STATUS_OK)
+	if elem := r.getClosestElemBefore(node.id); elem.node.id != node3.id {
+		t.Error("invalid closest elem", elem.node.id, node3.id)
 	}
 }
 
 func TestRingPush(t *testing.T) {
-	node1 := NewNode("localhost:9000", 10, NODE_STATUS_OK)
-	node2 := NewNode("localhost:9001", 20, NODE_STATUS_OK)
-	node3 := NewNode("localhost:9002", 30, NODE_STATUS_OK)
+	node1 := NewNode("localhost:9000", []partition.Token{10}, NODE_STATUS_OK)
+	node2 := NewNode("localhost:9001", []partition.Token{20}, NODE_STATUS_OK)
+	node3 := NewNode("localhost:9002", []partition.Token{30}, NODE_STATUS_OK)
 	r := NewRing(&node1, &node2, &node3)
 	if r.length != 3 {
 		t.Error("error")
 	}
-	if token := r.next().token; token != 10 {
+	if token := r.next().id; token != 10 {
 		t.Error("error", token)
 	}
-	if r.next().token != 20 {
+	if r.next().id != 20 {
 		t.Error("error")
 	}
-	if r.next().token != 30 {
+	if r.next().id != 30 {
 		t.Error("error")
 	}
-	if r.next().token != 10 {
+	if r.next().id != 10 {
 		t.Error("error")
 	}
 	if err := r.push(&node1); err == nil {
 		t.Error("error")
 	}
-	if r.first.node.token != node1.token {
+	if r.first.node.id != node1.id {
 		t.Error("unexpected first node")
 	}
-	if r.last.node.token != node3.token {
+	if r.last.node.id != node3.id {
 		t.Error("unexpected last node")
 	}
 
-	node4 := NewNode("localhost:9003", 4, NODE_STATUS_OK)
+	node4 := NewNode("localhost:9003", []partition.Token{4}, NODE_STATUS_OK)
 	r.push(&node4)
-	if r.first.node.token != node4.token {
+	if r.first.node.id != node4.id {
 		t.Error("expected the first node to change")
 	}
 
-	node5 := NewNode("localhost:9003", 400, NODE_STATUS_OK)
+	node5 := NewNode("localhost:9003", []partition.Token{400}, NODE_STATUS_OK)
 	r.push(&node5)
-	if r.last.node.token != node5.token {
+	if r.last.node.id != node5.id {
 		t.Error("expected the last node to change")
 	}
 }
 
 func TestRingUnlink(t *testing.T) {
-	node1 := NewNode("localhost:9000", 1, NODE_STATUS_OK)
-	node2 := NewNode("localhost:9001", 2, NODE_STATUS_OK)
-	node3 := NewNode("localhost9002", 3, NODE_STATUS_OK)
+	node1 := NewNode("localhost:9000", []partition.Token{1}, NODE_STATUS_OK)
+	node2 := NewNode("localhost:9001", []partition.Token{2}, NODE_STATUS_OK)
+	node3 := NewNode("localhost9002", []partition.Token{3}, NODE_STATUS_OK)
 	r := NewRing(&node1, &node2, &node3)
-	node4 := NewNode("localhost:9003", 4, NODE_STATUS_OK)
+	node4 := NewNode("localhost:9003", []partition.Token{4}, NODE_STATUS_OK)
 	if err := r.unlink(&node4); err == nil {
 		t.Error("expected to get errors while unlinking a node which doesn't exist")
 	}
@@ -88,13 +92,13 @@ func TestRingUnlink(t *testing.T) {
 		t.Error("expected to see a reduced length")
 	}
 
-	if n1 := r.next(); n1.token != node1.token {
+	if n1 := r.next(); n1.id != node1.id {
 		t.Error("wrong first node")
 	}
-	if n3 := r.next(); n3.token != node3.token {
+	if n3 := r.next(); n3.id != node3.id {
 		t.Error("wrong second node")
 	}
-	if n1 := r.next(); n1.token != node1.token {
+	if n1 := r.next(); n1.id != node1.id {
 		t.Error("incorrect turn")
 	}
 
@@ -102,10 +106,10 @@ func TestRingUnlink(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if r.first.node.token != node3.token {
+	if r.first.node.id != node3.id {
 		t.Error("invalid first node")
 	}
-	if r.last.node.token != node3.token {
+	if r.last.node.id != node3.id {
 		t.Error("invalid last node")
 	}
 }
@@ -115,9 +119,9 @@ func TestNthNode(t *testing.T) {
 	if r.nthElem(1) != nil {
 		t.Error("expected to receive nil")
 	}
-	node1 := NewNode("localhost:9000", 1, NODE_STATUS_OK)
-	node2 := NewNode("localhost:9001", 2, NODE_STATUS_OK)
-	node3 := NewNode("localhost:9002", 3, NODE_STATUS_OK)
+	node1 := NewNode("localhost:9000", []partition.Token{1}, NODE_STATUS_OK)
+	node2 := NewNode("localhost:9001", []partition.Token{2}, NODE_STATUS_OK)
+	node3 := NewNode("localhost:9002", []partition.Token{3}, NODE_STATUS_OK)
 	r = NewRing(&node1, &node2, &node3)
 	if r.nthElem(2) == nil || r.nthElem(2).node != &node3 {
 		t.Error("expected to receive node 3", r.nthElem(2).node, &node3)

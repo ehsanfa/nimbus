@@ -1,10 +1,19 @@
 package storage
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
+
+type persist interface {
+	append(entryLog entryLog) error
+	read(logs chan entryLog)
+}
 
 type DataStore struct {
 	storage *storage
 	backlog *backlog
+	persist persist
 }
 
 func (d DataStore) Get(k string) (string, error) {
@@ -29,11 +38,21 @@ func (d DataStore) Commit(k string, p Promise) error {
 		return errors.New("error converting to string")
 	}
 	d.storage.set(k, strVal)
+	d.persist.append(entryLog{SET_COMMAND, k, strVal})
 	return nil
 }
 
-func NewDataStore() DataStore {
+func (d DataStore) Rehydrate() {
+	ch := make(chan entryLog)
+	go d.persist.read(ch)
+	for l := range ch {
+		d.storage.set(l.key, l.value)
+	}
+}
+
+func NewDataStore(ctx context.Context) DataStore {
 	storage := newStorage()
 	backlog := newBacklog()
-	return DataStore{storage, backlog}
+	writeAheadLog := newWriteAheadLog(ctx, "/tmp/nimbus/data", 0)
+	return DataStore{storage, backlog, writeAheadLog}
 }

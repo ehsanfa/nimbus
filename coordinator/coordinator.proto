@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package coordinator;
+
+option go_package = "github.com/ehsanfa/nimbus/coordinator";
+
+service CoordinatorService {
+    rpc Set (CoordinateRequestSet) returns (CoordinateResponseSet) {}
+    rpc Get (CoordinateRequestGet) returns (CoordinateResponseGet) {}
+}
+
+message CoordinateRequestSet {
+    string key = 1;
+    string value = 2;
+}
+message CoordinateResponseSet {
+    bool ok = 1;
+    string error = 2;
+}
+
+message CoordinateRequestGet {
+	string key = 1;
+}
+
+message CoordinateResponseGet {
+    string value = 1;
+    bool ok = 2;
+    string error = 3;
+}

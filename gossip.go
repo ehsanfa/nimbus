@@ -22,7 +22,8 @@ type Gossip struct {
 
 type Node struct {
 	Address string
-	Token   int64
+	Id      int64
+	Tokens  []int64
 	Status  int8
 	Version int64
 }
@@ -38,7 +39,7 @@ func convertToNodes() map[int64]Node {
 		if !ok {
 			panic("invalid type")
 		}
-		nodes[n.Token] = n
+		nodes[n.Id] = n
 		return true
 	})
 	return nodes
@@ -91,7 +92,7 @@ func (g Gossip) spread(n *node) error {
 
 func (g Gossip) handleFailure(node *node) {
 	node.markAsUnrechable()
-	n, ok := info.Load(int64(node.token))
+	n, ok := info.Load(int64(node.id))
 	if !ok {
 		panic("node not found")
 	}
@@ -101,11 +102,15 @@ func (g Gossip) handleFailure(node *node) {
 	}
 	retrievedNode.Status = int8(NODE_STATUS_UNREACHABLE)
 	retrievedNode.Version = latestVersion()
-	info.Store(int64(node.token), retrievedNode)
+	info.Store(int64(node.id), retrievedNode)
 }
 
 func createNode(n *node, version int64) Node {
-	return Node{n.address, int64(n.token), int8(n.status), version}
+	tokens := []int64{}
+	for _, t := range n.tokens {
+		tokens = append(tokens, int64(t))
+	}
+	return Node{n.address, int64(n.id), tokens, int8(n.status), version}
 }
 
 func latestVersion() int64 {
@@ -183,8 +188,8 @@ func (g Gossip) catchUp(ctx context.Context, initiatorAddress string, done chan 
 
 func (g Gossip) handleGossip(nodes map[int64]Node) {
 	for t, n := range nodes {
-		if partition.Token(n.Token) == g.self.token {
-			info.Store(n.Token, createLatestVersion(g.self))
+		if n.Id == int64(g.self.id) {
+			info.Store(n.Id, createLatestVersion(g.self))
 			continue
 		}
 		if knownNode, ok := info.Load(t); !ok {
@@ -198,7 +203,7 @@ func (g Gossip) handleGossip(nodes map[int64]Node) {
 				if !n.IsActive() {
 					continue
 				}
-				node := g.cluster.nodeFromToken(partition.Token(n.Token))
+				node := g.cluster.nodeFromId(nodeId(n.Id))
 				if node == nil {
 					panic("unknown node in cluster")
 				}
@@ -217,8 +222,12 @@ func (g Gossip) handleGossip(nodes map[int64]Node) {
 }
 
 func (g Gossip) syncWithCluster(n Node) {
-	node := NewNode(n.Address, partition.Token(n.Token), nodeStatus(n.Status))
-	info.Store(n.Token, n)
+	tokens := []partition.Token{}
+	for _, t := range n.Tokens {
+		tokens = append(tokens, partition.Token(t))
+	}
+	node := NewNode(n.Address, tokens, nodeStatus(n.Status))
+	info.Store(n.Id, n)
 	g.cluster.updateNode(&node)
 }
 

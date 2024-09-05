@@ -1,14 +1,20 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/ehsanfa/nimbus/partition"
+	"github.com/google/btree"
 )
 
 type consistencyLevel int
 type replicationFactor int
+
+var updateNodeMu sync.Mutex
 
 const (
 	CONSISTENCY_LEVEL_ONE consistencyLevel = iota
@@ -17,9 +23,19 @@ const (
 )
 
 type cluster struct {
-	ring *ring
-	rf   replicationFactor
-	cl   consistencyLevel
+	ring         *ring
+	rf           replicationFactor
+	cl           consistencyLevel
+	nodesByToken *btree.BTree
+}
+
+type nodeItem struct {
+	node  *node
+	token partition.Token
+}
+
+func (n nodeItem) Less(than btree.Item) bool {
+	return n.token.Less(than.(nodeItem).token)
 }
 
 func (c cluster) minNodesRequired() int {
@@ -37,7 +53,7 @@ func (c cluster) minNodesRequired() int {
 
 func (c cluster) isHealthy() bool {
 	healthyNodes := 0
-	for _, elem := range c.ring.elemsByToken {
+	for _, elem := range c.ring.elemsById {
 		if elem.node.isOk() {
 			healthyNodes++
 		}
@@ -49,14 +65,38 @@ func (c cluster) isHealthy() bool {
 }
 
 func (c cluster) getResponsibleNodes(token partition.Token) ([]*node, error) {
-	mainNode := c.ring.getClosestElemBefore(token)
+	mainNode := c.getMainNode(token)
 	nodes := []*node{}
-	elem := mainNode
+	elem := c.ring.elemsById[mainNode.id]
 	for i := 1; i <= c.minNodesRequired(); i++ {
 		nodes = append(nodes, elem.node)
 		elem = elem.next
 	}
 	return nodes, nil
+}
+
+func (c cluster) nodeMatchingToken(token partition.Token) *node {
+	var matchingNode *node
+	c.nodesByToken.DescendLessOrEqual(nodeItem{nil, token}, func(i btree.Item) bool {
+		matchingNode = i.(nodeItem).node
+		return false
+	})
+	return matchingNode
+}
+
+func (c cluster) getMainNode(token partition.Token) *node {
+	if c.ring.length == 0 {
+		panic("empty ring")
+	}
+	if c.ring.length == 1 {
+		return c.ring.first.node
+	}
+
+	node := c.nodeMatchingToken(token)
+	if node == nil {
+		return c.ring.first.node
+	}
+	return node
 }
 
 func (c cluster) randomNode() *node {
@@ -68,21 +108,21 @@ func (c cluster) randomNode() *node {
 	return elem.node
 }
 
-func (c cluster) nodes() map[partition.Token]*node {
-	nodes := make(map[partition.Token]*node)
-	for t, e := range c.ring.elemsByToken {
+func (c cluster) nodes() map[nodeId]*node {
+	nodes := make(map[nodeId]*node)
+	for t, e := range c.ring.elemsById {
 		nodes[t] = e.node
 	}
 	return nodes
 }
 
 func (c cluster) updateNode(node *node) error {
-	knownNode := c.ring.elemsByToken[node.token]
+	knownNode := c.ring.elemsById[node.id]
 	if knownNode == nil {
 		return c.addNode(node)
 	}
-	if knownNode.token == node.token {
-		c.ring.elemsByToken[node.token].node = node
+	if knownNode.id == node.id {
+		c.ring.elemsById[node.id].node = node
 		return nil
 	}
 	switch node.status {
@@ -95,8 +135,8 @@ func (c cluster) updateNode(node *node) error {
 	return nil
 }
 
-func (c cluster) nodeFromToken(t partition.Token) *node {
-	elem, ok := c.ring.elemsByToken[t]
+func (c cluster) nodeFromId(id nodeId) *node {
+	elem, ok := c.ring.elemsById[id]
 	if !ok {
 		return nil
 	}
@@ -104,7 +144,22 @@ func (c cluster) nodeFromToken(t partition.Token) *node {
 }
 
 func (c cluster) addNode(node *node) error {
-	return c.ring.push(node)
+	updateNodeMu.Lock()
+	defer updateNodeMu.Unlock()
+	for _, t := range node.tokens {
+		if c.nodesByToken.Has(nodeItem{node, t}) {
+			return errors.New("nodes with similar tokens already exists")
+		}
+	}
+	err := c.ring.push(node)
+	if err != nil {
+		return err
+	}
+	for _, t := range node.tokens {
+		c.nodesByToken.ReplaceOrInsert(nodeItem{node, t})
+	}
+	fmt.Println("tree length", c.nodesByToken.Len())
+	return nil
 }
 
 func (c cluster) removeNode(node *node) error {
@@ -112,6 +167,18 @@ func (c cluster) removeNode(node *node) error {
 }
 
 func NewCluster(nodes []*node, rf replicationFactor, cl consistencyLevel) cluster {
-	ring := NewRing(nodes...)
-	return cluster{ring, rf, cl}
+	ring := NewRing()
+	c := cluster{
+		ring:         ring,
+		rf:           rf,
+		cl:           cl,
+		nodesByToken: btree.New(5),
+	}
+	for _, n := range nodes {
+		err := c.addNode(n)
+		if err != nil {
+			panic(err)
+		}
+	}
+	return c
 }

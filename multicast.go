@@ -112,3 +112,20 @@ func send(address string, message []byte) {
 	}
 	log.Printf("Sent message: %s", message)
 }
+
+func StartReceiver(serverAddress, udpAddress string) {
+	go setupMarcoReceiver(serverAddress, udpAddress)
+}
+
+func GetInitiator(ctx context.Context, serverAddress, udpAddress string) (string, error) {
+	marcoPoloCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go marco(marcoPoloCtx, udpAddress)
+	initiatorAddress, err := listenPoloReceiver(marcoPoloCtx, serverAddress, udpAddress)
+	if err != nil {
+		fmt.Println(err)
+		return "", err
+	}
+	fmt.Println("initiator address", initiatorAddress)
+	return initiatorAddress, nil
+}

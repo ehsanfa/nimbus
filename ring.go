@@ -2,8 +2,6 @@ package main
 
 import (
 	"errors"
-
-	"github.com/ehsanfa/nimbus/partition"
 )
 
 type element struct {
@@ -13,15 +11,15 @@ type element struct {
 }
 
 type ring struct {
-	length       int
-	first        *element
-	last         *element
-	pos          *element
-	elemsByToken map[partition.Token]*element
+	length    int
+	first     *element
+	last      *element
+	pos       *element
+	elemsById map[nodeId]*element
 }
 
 func (r *ring) push(node *node) error {
-	if _, ok := r.elemsByToken[node.token]; ok {
+	if _, ok := r.elemsById[node.id]; ok {
 		return errors.New("node already exists in the ring")
 	}
 
@@ -32,30 +30,30 @@ func (r *ring) push(node *node) error {
 		r.first = &elem
 		r.last = &elem
 		r.length += 1
-		r.elemsByToken[node.token] = &elem
+		r.elemsById[node.id] = &elem
 		return nil
 	}
 
-	closestElemBefore := r.getClosestElemBefore(node.token)
+	closestElemBefore := r.getClosestElemBefore(node.id)
 
 	elem.next = closestElemBefore.next
 	elem.prev = closestElemBefore
 	closestElemBefore.next.prev = &elem
 	closestElemBefore.next = &elem
 	if closestElemBefore == r.last {
-		if closestElemBefore.node.token > elem.node.token {
+		if closestElemBefore.node.id > elem.node.id {
 			r.first = &elem
 		} else {
 			r.last = &elem
 		}
 	}
 	r.length += 1
-	r.elemsByToken[node.token] = &elem
+	r.elemsById[node.id] = &elem
 	return nil
 }
 
 func (r *ring) unlink(node *node) error {
-	elem, ok := r.elemsByToken[node.token]
+	elem, ok := r.elemsById[node.id]
 	if !ok {
 		return errors.New("node doesn't exist in the ring")
 	}
@@ -80,7 +78,7 @@ func (r *ring) unlink(node *node) error {
 	elem.next = nil
 	elem.prev = nil
 
-	delete(r.elemsByToken, node.token)
+	delete(r.elemsById, node.id)
 	r.length -= 1
 	return nil
 }
@@ -97,11 +95,11 @@ func (r *ring) reset() {
 	r.first = nil
 	r.last = nil
 	r.pos = nil
-	r.elemsByToken = make(map[partition.Token]*element)
+	r.elemsById = make(map[nodeId]*element)
 	r.length = 0
 }
 
-func (r *ring) getClosestElemBefore(token partition.Token) *element {
+func (r *ring) getClosestElemBefore(id nodeId) *element {
 	if r.length == 0 {
 		panic("empty ring")
 	}
@@ -110,7 +108,7 @@ func (r *ring) getClosestElemBefore(token partition.Token) *element {
 	}
 	elem := r.first
 	for {
-		if token < elem.node.token {
+		if id < elem.node.id {
 			return elem.prev
 		}
 		if elem == r.last {
@@ -139,7 +137,7 @@ func (r *ring) nthElem(n int) *element {
 }
 
 func NewRing(nodes ...*node) *ring {
-	r := &ring{pos: nil, elemsByToken: make(map[partition.Token]*element)}
+	r := &ring{pos: nil, elemsById: make(map[nodeId]*element)}
 	for _, n := range nodes {
 		r.push(n)
 	}

@@ -4,17 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/rpc"
 	"sync"
 	"time"
 
+	pb "github.com/ehsanfa/nimbus/coordinator"
 	"github.com/ehsanfa/nimbus/partition"
+	"google.golang.org/grpc"
 )
 
 type Coordinator struct {
 	context context.Context
 	cluster cluster
 	self    *node
+	timeout time.Duration
 }
 
 type CoordinateRequestSet struct {
@@ -43,14 +47,17 @@ func (c Coordinator) Set(req *CoordinateRequestSet, resp *CoordinateResponseSet)
 	proposal := time.Now().UnixMicro()
 	prepared := c.prepare(nodes, req.Key, proposal)
 	if !prepared {
+		fmt.Println("not prepared", req)
 		return errors.New("not prepared")
 	}
 	accepted := c.accept(nodes, req.Key, req.Value, proposal)
 	if !accepted {
+		fmt.Println("not accepted", req)
 		return errors.New("not accepted")
 	}
 	committed := c.commit(nodes, req.Key, proposal)
 	if !committed {
+		fmt.Println("not committed", req)
 		return errors.New("not committed")
 	}
 
@@ -77,13 +84,13 @@ func (c Coordinator) prepare(nodes []*node, key string, propose int64) bool {
 			case <-call.Done:
 				if resp.Promised {
 					consensus = true
-					// panic("could not promise")
 				}
 			case <-c.context.Done():
+				consensus = false
 				fmt.Println("cancelled")
-			case <-time.After(6 * time.Second):
-				// client.Close()
-				fmt.Println("timed out")
+			case <-time.After(c.timeout):
+				consensus = false
+				fmt.Println("prepare timed out")
 			}
 		}()
 	}
@@ -112,10 +119,12 @@ func (c Coordinator) accept(nodes []*node, key, value string, proposal int64) bo
 					consensus = true
 				}
 			case <-c.context.Done():
+				consensus = false
 				fmt.Println("cancelld")
-			case <-time.After(6 * time.Second):
+			case <-time.After(c.timeout):
+				consensus = false
 				// client.Close()
-				fmt.Println("timed out")
+				fmt.Println("accept timed out")
 			}
 		}()
 	}
@@ -145,9 +154,9 @@ func (c Coordinator) commit(nodes []*node, key string, proposal int64) bool {
 				}
 			case <-c.context.Done():
 				fmt.Println("cancelld")
-			case <-time.After(6 * time.Second):
+			case <-time.After(c.timeout):
 				// client.Close()
-				fmt.Println("timed out")
+				fmt.Println("commit timed out")
 			}
 		}()
 	}
@@ -174,7 +183,7 @@ func (c Coordinator) Get(req *CoordinateRequestGet, resp *CoordinateResponseGet)
 		var serverResp CoordinateResponseGet
 		client.Call("DataStore.Get", CoordinateRequestGet{req.Key}, &serverResp)
 		if !serverResp.Ok {
-			// fmt.Println(serverResp.Error)
+			fmt.Println(serverResp.Error)
 			resp.Error = serverResp.Error
 			resp.Ok = false
 			return nil
@@ -185,6 +194,11 @@ func (c Coordinator) Get(req *CoordinateRequestGet, resp *CoordinateResponseGet)
 	return nil
 }
 
-func NewCoordinator(ctx context.Context, self *node, c cluster) Coordinator {
-	return Coordinator{ctx, c, self}
+func NewCoordinator(ctx context.Context, self *node, c cluster, lis net.Listener) Coordinator {
+	coor := Coordinator{ctx, c, self, 5 * time.Second}
+	grpcServer := &server{c: coor}
+	s := grpc.NewServer()
+	pb.RegisterCoordinatorServiceServer(s, grpcServer)
+	go s.Serve(lis)
+	return coor
 }

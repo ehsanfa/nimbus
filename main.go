@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net"
@@ -37,7 +38,7 @@ func serve(ctx context.Context, l net.Listener, handler *rpc.Server) {
 	}()
 }
 
-func getToken() partition.Token {
+func getToken() []partition.Token {
 	var token partition.Token
 
 	givenToken := os.Getenv("TOKEN")
@@ -46,10 +47,11 @@ func getToken() partition.Token {
 		if err != nil {
 			panic(err)
 		}
-		return partition.Token(gt)
+		return []partition.Token{partition.Token(gt)}
 	}
 
-	tokenFile, err := os.ReadFile("/tmp/nimbus/token.nimbus")
+	tokens := []partition.Token{}
+	tokenFile, err := os.Open("/tmp/nimbus/token.nimbus")
 	if os.IsNotExist(err) {
 		var err error
 		err = os.Mkdir("/tmp/nimbus", 0755)
@@ -62,22 +64,54 @@ func getToken() partition.Token {
 		if err != nil {
 			panic(err)
 		}
-		c.Close()
-		token = partition.SuggestToken()
-		err = os.WriteFile("/tmp/nimbus/token.nimbus", []byte(fmt.Sprintf("%d", token)), 0755)
-		if err != nil {
-			panic(err)
+		defer c.Close()
+		writer := bufio.NewWriter(c)
+		for range 256 {
+			token = partition.SuggestToken()
+			_, err := fmt.Fprintln(writer, token)
+			if err != nil {
+				panic(err)
+			}
+			tokens = append(tokens, token)
 		}
-		return token
+		writer.Flush()
 	} else if err != nil {
 		panic(err)
 	} else {
-		tInt, err := strconv.Atoi(string(tokenFile))
+		scanner := bufio.NewScanner(tokenFile)
+		for scanner.Scan() {
+			tInt, err := strconv.Atoi(string(scanner.Text()))
+			if err != nil {
+				panic(err)
+			}
+			tokens = append(tokens, partition.Token(tInt))
+		}
+	}
+	return tokens
+}
+
+func getHostname() string {
+	givenHostname := os.Getenv("HOST")
+	if givenHostname == "" {
+		hostName, err := os.Hostname()
 		if err != nil {
 			panic(err)
 		}
-		return partition.Token(tInt)
+		givenHostname = hostName
 	}
+	return givenHostname
+}
+
+func getPort() int {
+	givenPort := os.Getenv("PORT")
+	if givenPort == "" {
+		givenPort = "0"
+	}
+	port, err := strconv.Atoi(givenPort)
+	if err != nil {
+		panic(err)
+	}
+	return port
 }
 
 func main() {
@@ -90,48 +124,32 @@ func main() {
 		cancel()
 		done <- true
 	}()
-	givenHostname := os.Getenv("HOST")
-	if givenHostname == "" {
-		hostName, err := os.Hostname()
-		if err != nil {
-			panic(err)
-		}
-		givenHostname = hostName
-	}
-	givenPort := os.Getenv("PORT")
-	if givenPort == "" {
-		givenPort = "0"
-	}
-	port, err := strconv.Atoi(givenPort)
-	if err != nil {
-		panic(err)
-	}
-	address := fmt.Sprintf("%s:%d", givenHostname, port)
-	l, err := net.Listen("tcp", address)
+	hostname := getHostname()
+	port := getPort()
+
+	l, err := net.Listen("tcp", fmt.Sprintf("%s:%d", hostname, port))
 	if err != nil {
 		panic(err)
 	}
 	defer l.Close()
 
-	address = l.Addr().String()
+	address := l.Addr().String()
 	fmt.Println("serving on ", address)
-	udpAddress := "224.1.1.1:5008"
-
-	go setupMarcoReceiver(address, udpAddress)
 
 	self := NewNode(address, getToken(), NODE_STATUS_OK)
-	cluster := NewCluster([]*node{&self}, 5, CONSISTENCY_LEVEL_ONE)
+	cluster := NewCluster([]*node{&self}, 3, CONSISTENCY_LEVEL_ALL)
 	initiatorAddress := os.Getenv("INITIATOR")
 	gossip := NewGossip(ctx, cluster, &self)
 
-	coordinator := NewCoordinator(ctx, &self, cluster)
+	NewCoordinator(ctx, &self, cluster, l)
 
 	d := NewDataStore(ctx, l)
+	d.dataStore.Rehydrate()
 
 	handler := rpc.NewServer()
 	handler.Register(d)
 	handler.Register(gossip)
-	handler.Register(coordinator)
+	// handler.Register(coordinator)
 	serve(ctx, l, handler)
 
 	clusterType := os.Getenv("CLUSTER_TYPE")
@@ -141,15 +159,16 @@ func main() {
 	}
 
 	if initiatorAddress == "" {
-		marcoPoloCtx, cancel := context.WithCancel(ctx)
-		go marco(marcoPoloCtx, udpAddress)
-		initiatorAddress, err = listenPoloReceiver(marcoPoloCtx, address, udpAddress)
-		if err != nil {
-			fmt.Println(err)
-			return
+		if os.Getenv("ONBOARDING_TYPE") == "MULTICASTING" {
+			udpAddress := "224.1.1.1:5008"
+			StartReceiver(address, udpAddress)
+			initiatorAddress, err = GetInitiator(ctx, address, udpAddress)
+			if err != nil {
+				panic(err)
+			}
+		} else {
+			panic("INITIATOR cannot be null")
 		}
-		fmt.Println("initiator address", initiatorAddress)
-		cancel()
 	}
 	catchupDone := make(chan bool)
 	go gossip.catchUp(ctx, initiatorAddress, catchupDone)

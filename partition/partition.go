@@ -15,7 +15,11 @@ func GetToken(k string) Token {
 	hash.Write([]byte(k))
 	hashBytes := hash.Sum(nil)
 	hashInt := new(big.Int).SetBytes(hashBytes)
-	return Token(hashInt.Mod(hashInt, big.NewInt(1<<64/2-1)).Int64() + 1)
+	return Token(hashInt.Mod(hashInt, big.NewInt(1<<32/2-1)).Int64() + 1)
+}
+
+func (t Token) Less(than Token) bool {
+	return t < than
 }
 
 /*
@@ -24,5 +28,5 @@ numberOfNodes reprents how many nodes are already in the cluster
 */
 func SuggestToken() Token {
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return Token(rnd.Intn(math.MaxInt64))
+	return Token(rnd.Intn(math.MaxInt32))
 }

@@ -107,7 +107,7 @@ func NewDataStore(
 ) DataStore {
 	return DataStore{
 		context:   ctx,
-		dataStore: storage.NewDataStore(),
+		dataStore: storage.NewDataStore(ctx),
 		listener:  listener,
 	}
 }

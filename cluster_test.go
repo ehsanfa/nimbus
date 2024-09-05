@@ -2,6 +2,8 @@ package main
 
 import (
 	"testing"
+
+	"github.com/ehsanfa/nimbus/partition"
 )
 
 func TestMinNodesRequired(t *testing.T) {
@@ -26,14 +28,14 @@ func TestMinNodesRequired(t *testing.T) {
 
 func TestIsHealthy(t *testing.T) {
 	var c cluster
-	n := NewNode("localhost:9000", 1, NODE_STATUS_OK)
+	n := NewNode("localhost:9000", []partition.Token{1}, NODE_STATUS_OK)
 	c = NewCluster([]*node{&n}, 3, CONSISTENCY_LEVEL_QUORUM)
 	if c.isHealthy() != false {
 		t.Error("error")
 	}
-	n1 := NewNode("localhost:9000", 1, NODE_STATUS_OK)
-	n2 := NewNode("localhost:9000", 2, NODE_STATUS_OK)
-	n3 := NewNode("localhost:9000", 3, NODE_STATUS_OK)
+	n1 := NewNode("localhost:9000", []partition.Token{1}, NODE_STATUS_OK)
+	n2 := NewNode("localhost:9000", []partition.Token{2}, NODE_STATUS_OK)
+	n3 := NewNode("localhost:9000", []partition.Token{3}, NODE_STATUS_OK)
 	c = NewCluster([]*node{
 		&n1,
 		&n2,

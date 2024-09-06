@@ -32,46 +32,46 @@ services:
       - PORT=9091
       - INITIATOR=node1:9091
   
-  # node4:
-  #   image: golang:1.22.5
-  #   command: go run .
-  #   volumes:
-  #     - .:/go
-  #   ports:
-  #     - 9194:9091
-  #   environment:
-  #     - PORT=9091
-  #     - INITIATOR=node1:9091
+  node4:
+    image: golang:1.22.5
+    command: go run .
+    volumes:
+      - .:/go
+    ports:
+      - 9194:9091
+    environment:
+      - PORT=9091
+      - INITIATOR=node1:9091
 
-  # node5:
-  #   image: golang:1.22.5
-  #   command: go run .
-  #   volumes:
-  #     - .:/go
-  #   ports:
-  #     - 9195:9091
-  #   environment:
-  #     - PORT=9091
-  #     - INITIATOR=node1:9091
+  node5:
+    image: golang:1.22.5
+    command: go run .
+    volumes:
+      - .:/go
+    ports:
+      - 9195:9091
+    environment:
+      - PORT=9091
+      - INITIATOR=node1:9091
 
-  # node6:
-  #   image: golang:1.22.5
-  #   command: go run .
-  #   volumes:
-  #     - .:/go
-  #   ports:
-  #     - 9196:9091
-  #   environment:
-  #     - PORT=9091
-  #     - INITIATOR=node1:9091
+  node6:
+    image: golang:1.22.5
+    command: go run .
+    volumes:
+      - .:/go
+    ports:
+      - 9196:9091
+    environment:
+      - PORT=9091
+      - INITIATOR=node1:9091
 
-  # node7:
-  #   image: golang:1.22.5
-  #   command: go run .
-  #   volumes:
-  #     - .:/go
-  #   ports:
-  #     - 9197:9091
-  #   environment:
-  #     - PORT=9091
-  #     - INITIATOR=node1:9091
+  node7:
+    image: golang:1.22.5
+    command: go run .
+    volumes:
+      - .:/go
+    ports:
+      - 9197:9091
+    environment:
+      - PORT=9091
+      - INITIATOR=node1:9091

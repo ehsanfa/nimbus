@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/rpc"
 	"os"
@@ -11,7 +12,11 @@ import (
 	"strconv"
 	"syscall"
 
+	pbcoor "github.com/ehsanfa/nimbus/coordinator"
+	pbds "github.com/ehsanfa/nimbus/datastore"
+	pbgsp "github.com/ehsanfa/nimbus/gossip"
 	"github.com/ehsanfa/nimbus/partition"
+	"google.golang.org/grpc"
 )
 
 func serve(ctx context.Context, l net.Listener, handler *rpc.Server) {
@@ -139,18 +144,31 @@ func main() {
 	self := NewNode(address, getToken(), NODE_STATUS_OK)
 	cluster := NewCluster([]*node{&self}, 3, CONSISTENCY_LEVEL_ALL)
 	initiatorAddress := os.Getenv("INITIATOR")
-	gossip := NewGossip(ctx, cluster, &self)
+	gossip := NewGossipServer(ctx, cluster, &self)
 
-	NewCoordinator(ctx, &self, cluster, l)
+	coordinator := NewCoordinatorServer(ctx, &self, cluster, l)
 
-	d := NewDataStore(ctx, l)
-	d.dataStore.Rehydrate()
+	d := NewDataStoreServer(ctx, l)
+	d.d.dataStore.Rehydrate()
 
-	handler := rpc.NewServer()
-	handler.Register(d)
-	handler.Register(gossip)
+	// handler := rpc.NewServer()
+	// handler.Register(d)
+	// handler.Register(gossip)
 	// handler.Register(coordinator)
-	serve(ctx, l, handler)
+	// serve(ctx, l, handler)
+
+	dsb := newDataStoreBinary()
+	go dsb.serve()
+
+	s := grpc.NewServer()
+	pbds.RegisterDataStoreServiceServer(s, d)
+	pbgsp.RegisterGossipServiceServer(s, gossip)
+	pbcoor.RegisterCoordinatorServiceServer(s, coordinator)
+	go func() {
+		if err := s.Serve(l); err != nil {
+			log.Fatalf("failed to serve: %v", err)
+		}
+	}()
 
 	clusterType := os.Getenv("CLUSTER_TYPE")
 	if clusterType == "STANDALONE" {
@@ -171,9 +189,9 @@ func main() {
 		}
 	}
 	catchupDone := make(chan bool)
-	go gossip.catchUp(ctx, initiatorAddress, catchupDone)
+	go gossip.g.catchUp(ctx, initiatorAddress, catchupDone)
 	<-catchupDone
 
-	gossip.start()
+	gossip.g.start()
 	<-done
 }

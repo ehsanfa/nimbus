@@ -5,200 +5,176 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/rpc"
 	"sync"
 	"time"
 
-	pb "github.com/ehsanfa/nimbus/coordinator"
+	pbcoor "github.com/ehsanfa/nimbus/coordinator"
+	pbds "github.com/ehsanfa/nimbus/datastore"
 	"github.com/ehsanfa/nimbus/partition"
-	"google.golang.org/grpc"
+	"github.com/ehsanfa/nimbus/protocol"
 )
 
-type Coordinator struct {
+type coordinator struct {
 	context context.Context
 	cluster cluster
 	self    *node
 	timeout time.Duration
 }
-
-type CoordinateRequestSet struct {
-	Key   string
-	Value string
+type coordinatorServer struct {
+	pbcoor.UnimplementedCoordinatorServiceServer
+	c coordinator
 }
 
-type CoordinateResponseSet struct {
-	Ok    bool
-	Error string
+func (c coordinator) prepare(parentCtx context.Context, nodes []*node, key string, proposal int64) bool {
+	ctx, cancel := context.WithTimeout(parentCtx, c.timeout)
+	defer cancel()
+	var wg sync.WaitGroup
+	consensus := false
+	for _, node := range nodes {
+		client, err := getClient(node.address)
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c := pbds.NewDataStoreServiceClient(client)
+			serverResp, err := c.Prepare(ctx, &pbds.PrepareRequest{Key: key, Proposal: proposal})
+			if err == nil && serverResp.Promised {
+				consensus = true
+			}
+		}()
+	}
+	wg.Wait()
+	return consensus
 }
-type CoordinateRequestGet GetRequest
-type CoordinateResponseGet GetResponse
 
-func (c Coordinator) Set(req *CoordinateRequestSet, resp *CoordinateResponseSet) error {
-	if !c.cluster.isHealthy() {
+func (c coordinator) accept(parentCtx context.Context, nodes []*node, key, value string, proposal int64) bool {
+	ctx, cancel := context.WithTimeout(parentCtx, c.timeout)
+	defer cancel()
+	var wg sync.WaitGroup
+	consensus := false
+	for _, node := range nodes {
+		client, err := getClient(node.address)
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c := pbds.NewDataStoreServiceClient(client)
+			serverResp, err := c.Accept(ctx, &pbds.AcceptRequest{Key: key, Proposal: proposal, Value: value})
+			if err == nil && serverResp.Accepted {
+				consensus = true
+			}
+		}()
+	}
+	wg.Wait()
+	return consensus
+}
+
+func (c coordinator) commit(parentCtx context.Context, nodes []*node, key string, proposal int64) bool {
+	ctx, cancel := context.WithTimeout(parentCtx, c.timeout)
+	defer cancel()
+	var wg sync.WaitGroup
+	consensus := false
+	for _, node := range nodes {
+		client, err := getClient(node.address)
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c := pbds.NewDataStoreServiceClient(client)
+			serverResp, err := c.Commit(ctx, &pbds.CommitRequest{Key: key, Proposal: proposal})
+			if err == nil && serverResp.Committed {
+				consensus = true
+			}
+		}()
+	}
+	wg.Wait()
+	return consensus
+}
+
+func (s *coordinatorServer) Get(ctx context.Context, in *pbcoor.CoordinateRequestGet) (*pbcoor.CoordinateResponseGet, error) {
+	resp := &pbcoor.CoordinateResponseGet{}
+	if !s.c.cluster.isHealthy() {
 		resp.Ok = false
 		resp.Error = "Not enough replicas"
-		return nil
+		return resp, nil
 	}
-	token := partition.GetToken(req.Key)
-	nodes, err := c.cluster.getResponsibleNodes(token)
+	token := partition.GetToken(in.Key)
+	nodes, err := s.c.cluster.getResponsibleNodes(token)
 	if err != nil {
-		return err
-	}
-	proposal := time.Now().UnixMicro()
-	prepared := c.prepare(nodes, req.Key, proposal)
-	if !prepared {
-		fmt.Println("not prepared", req)
-		return errors.New("not prepared")
-	}
-	accepted := c.accept(nodes, req.Key, req.Value, proposal)
-	if !accepted {
-		fmt.Println("not accepted", req)
-		return errors.New("not accepted")
-	}
-	committed := c.commit(nodes, req.Key, proposal)
-	if !committed {
-		fmt.Println("not committed", req)
-		return errors.New("not committed")
-	}
-
-	resp.Ok = true
-	return nil
-}
-
-func (c Coordinator) prepare(nodes []*node, key string, propose int64) bool {
-	var wg sync.WaitGroup
-	consensus := false
-	for _, node := range nodes {
-		client, err := getClient(node.address)
-		if err != nil {
-			fmt.Println(err)
-			return false
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			var resp PrepareResponse
-			done := make(chan *rpc.Call, 1)
-			call := client.Go("DataStore.Prepare", PrepareRequest{key, propose}, &resp, done)
-			select {
-			case <-call.Done:
-				if resp.Promised {
-					consensus = true
-				}
-			case <-c.context.Done():
-				consensus = false
-				fmt.Println("cancelled")
-			case <-time.After(c.timeout):
-				consensus = false
-				fmt.Println("prepare timed out")
-			}
-		}()
-	}
-	wg.Wait()
-	return consensus
-}
-
-func (c Coordinator) accept(nodes []*node, key, value string, proposal int64) bool {
-	var wg sync.WaitGroup
-	consensus := false
-	for _, node := range nodes {
-		client, err := getClient(node.address)
-		if err != nil {
-			fmt.Println(err)
-			return false
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			var resp AcceptResponse
-			done := make(chan *rpc.Call, 1)
-			call := client.Go("DataStore.Accept", AcceptRequest{key, proposal, value}, &resp, done)
-			select {
-			case <-call.Done:
-				if resp.Accepted {
-					consensus = true
-				}
-			case <-c.context.Done():
-				consensus = false
-				fmt.Println("cancelld")
-			case <-time.After(c.timeout):
-				consensus = false
-				// client.Close()
-				fmt.Println("accept timed out")
-			}
-		}()
-	}
-	wg.Wait()
-	return consensus
-}
-
-func (c Coordinator) commit(nodes []*node, key string, proposal int64) bool {
-	var wg sync.WaitGroup
-	consensus := false
-	for _, node := range nodes {
-		client, err := getClient(node.address)
-		if err != nil {
-			fmt.Println(err)
-			return false
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			var resp CommitResponse
-			done := make(chan *rpc.Call, 1)
-			call := client.Go("DataStore.Commit", CommitRequest{key, proposal}, &resp, done)
-			select {
-			case <-call.Done:
-				if resp.Committed {
-					consensus = true
-				}
-			case <-c.context.Done():
-				fmt.Println("cancelld")
-			case <-time.After(c.timeout):
-				// client.Close()
-				fmt.Println("commit timed out")
-			}
-		}()
-	}
-	wg.Wait()
-	return consensus
-}
-
-func (c Coordinator) Get(req *CoordinateRequestGet, resp *CoordinateResponseGet) error {
-	if !c.cluster.isHealthy() {
-		resp.Ok = false
-		resp.Error = "Not enough replicas"
-		return nil
-	}
-	token := partition.GetToken(req.Key)
-	nodes, err := c.cluster.getResponsibleNodes(token)
-	if err != nil {
-		return err
+		return resp, err
 	}
 	for _, node := range nodes {
 		client, err := getClient(node.address)
 		if err != nil {
 			panic(err) // for now
 		}
-		var serverResp CoordinateResponseGet
-		client.Call("DataStore.Get", CoordinateRequestGet{req.Key}, &serverResp)
-		if !serverResp.Ok {
+		c := pbds.NewDataStoreServiceClient(client)
+		serverResp, err := c.Get(ctx, &pbds.GetRequest{Key: in.Key})
+		if !serverResp.Ok || err != nil {
 			fmt.Println(serverResp.Error)
 			resp.Error = serverResp.Error
 			resp.Ok = false
-			return nil
+			return resp, nil
 		}
 		resp.Value = serverResp.Value
 	}
 	resp.Ok = true
-	return nil
+	return resp, nil
 }
 
-func NewCoordinator(ctx context.Context, self *node, c cluster, lis net.Listener) Coordinator {
-	coor := Coordinator{ctx, c, self, 5 * time.Second}
-	grpcServer := &server{c: coor}
-	s := grpc.NewServer()
-	pb.RegisterCoordinatorServiceServer(s, grpcServer)
-	go s.Serve(lis)
-	return coor
+func (s *coordinatorServer) Set(ctx context.Context, in *pbcoor.CoordinateRequestSet) (*pbcoor.CoordinateResponseSet, error) {
+	tcpClient, err := connectTcp("node1:8080")
+	if err != nil {
+		panic(err)
+	}
+	m := protocol.DataStoreMessage{Cmd: 1, Args: []string{"hasan", "hooshang"}}
+	if err = m.Encode(tcpClient); err != nil {
+		fmt.Println("errrrr", err)
+	} else {
+		fmt.Println("sent message")
+	}
+	resp := &pbcoor.CoordinateResponseSet{}
+	if !s.c.cluster.isHealthy() {
+		resp.Ok = false
+		resp.Error = "Not enough replicas"
+		return resp, nil
+	}
+	token := partition.GetToken(in.Key)
+	nodes, err := s.c.cluster.getResponsibleNodes(token)
+	if err != nil {
+		return resp, err
+	}
+	proposal := time.Now().UnixMicro()
+	prepared := s.c.prepare(ctx, nodes, in.Key, proposal)
+	if !prepared {
+		fmt.Println("not prepared", in)
+		return resp, errors.New("not prepared")
+	}
+	accepted := s.c.accept(ctx, nodes, in.Key, in.Value, proposal)
+	if !accepted {
+		fmt.Println("not accepted", in)
+		return resp, errors.New("not accepted")
+	}
+	committed := s.c.commit(ctx, nodes, in.Key, proposal)
+	if !committed {
+		fmt.Println("not committed", in)
+		return resp, errors.New("not committed")
+	}
+
+	resp.Ok = true
+	return resp, nil
+}
+
+func NewCoordinatorServer(ctx context.Context, self *node, c cluster, lis net.Listener) *coordinatorServer {
+	coor := coordinator{ctx, c, self, 5 * time.Second}
+	return &coordinatorServer{c: coor}
 }

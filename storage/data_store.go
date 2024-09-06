@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 type persist interface {
@@ -53,6 +54,6 @@ func (d DataStore) Rehydrate() {
 func NewDataStore(ctx context.Context) DataStore {
 	storage := newStorage()
 	backlog := newBacklog()
-	writeAheadLog := newWriteAheadLog(ctx, "/tmp/nimbus/data", 0)
+	writeAheadLog := newWriteAheadLog(ctx, "/tmp/nimbus/data", 5*time.Second)
 	return DataStore{storage, backlog, writeAheadLog}
 }

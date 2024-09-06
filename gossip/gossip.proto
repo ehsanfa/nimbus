@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package gossip;
+
+option go_package = "github.com/ehsanfa/nimbus/gossip";
+
+service GossipService {
+    rpc Spread (SpreadRequest) returns (SpreadResponse) {}
+    rpc CatchUp (CatchupRequest) returns (CatchupResponse) {}
+}
+
+message Node {
+    string address = 1;
+    int64 id = 2;
+    repeated int64 tokens = 3;
+    int32 status = 4;
+    int64 version = 5;
+}
+
+message SpreadRequest {
+    map<int64, Node> nodes = 1;
+}
+
+message SpreadResponse {}
+
+message CatchupRequest {}
+
+message CatchupResponse {
+    map<int64, Node> nodes = 1;
+}

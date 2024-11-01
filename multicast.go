@@ -31,7 +31,7 @@ func setupMarcoReceiver(serverAddress, udpAddress string) {
 		if string(message) == "marco" {
 			send(udpAddress, []byte(fmt.Sprintf("polo!%s", serverAddress)))
 		} else {
-			log.Printf("marco received unknown message", string(message))
+			log.Println("marco received unknown message", string(message))
 		}
 	}
 }
@@ -68,7 +68,7 @@ func listenPoloReceiver(ctx context.Context, selfAddress, udpAddress string) (st
 				responders <- serverAddress
 				return
 			} else {
-				log.Printf("polo received unknown message", string(message))
+				log.Println("polo received unknown message", string(message))
 			}
 		}
 	}()

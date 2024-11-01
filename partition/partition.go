@@ -10,9 +10,9 @@ import (
 
 type Token int64
 
-func GetToken(k string) Token {
+func GetToken(k []byte) Token {
 	hash := sha256.New()
-	hash.Write([]byte(k))
+	hash.Write(k)
 	hashBytes := hash.Sum(nil)
 	hashInt := new(big.Int).SetBytes(hashBytes)
 	return Token(hashInt.Mod(hashInt, big.NewInt(1<<32/2-1)).Int64() + 1)

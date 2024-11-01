@@ -17,33 +17,29 @@ type DataStore struct {
 	persist persist
 }
 
-func (d DataStore) Get(k string) (string, error) {
+func (d *DataStore) Get(k string) ([]byte, error) {
 	return d.storage.get(k)
 }
 
-func (d DataStore) Promise(p Promise, k string) error {
+func (d *DataStore) Promise(p Promise, k string) error {
 	return d.backlog.promise(p, k)
 }
 
-func (d DataStore) Accept(p Promise, k, v string) error {
+func (d *DataStore) Accept(p Promise, k string, v []byte) error {
 	return d.backlog.accept(p, k, v)
 }
 
-func (d DataStore) Commit(k string, p Promise) error {
-	v, ok := d.backlog.accepts.Load(p)
+func (d *DataStore) Commit(k string, p Promise) error {
+	v, ok := d.backlog.getValue(p)
 	if !ok {
-		return errors.New("error committing")
+		return errors.New("error committing. no accept found")
 	}
-	strVal, ok := v.(string)
-	if !ok {
-		return errors.New("error converting to string")
-	}
-	d.storage.set(k, strVal)
-	d.persist.append(entryLog{SET_COMMAND, k, strVal})
+	d.storage.set(k, v)
+	d.persist.append(entryLog{SET_COMMAND, k, v})
 	return nil
 }
 
-func (d DataStore) Rehydrate() {
+func (d *DataStore) Rehydrate() {
 	ch := make(chan entryLog)
 	go d.persist.read(ch)
 	for l := range ch {
@@ -51,9 +47,9 @@ func (d DataStore) Rehydrate() {
 	}
 }
 
-func NewDataStore(ctx context.Context) DataStore {
+func NewDataStore(ctx context.Context) *DataStore {
 	storage := newStorage()
 	backlog := newBacklog()
 	writeAheadLog := newWriteAheadLog(ctx, "/tmp/nimbus/data", 5*time.Second)
-	return DataStore{storage, backlog, writeAheadLog}
+	return &DataStore{storage, backlog, writeAheadLog}
 }

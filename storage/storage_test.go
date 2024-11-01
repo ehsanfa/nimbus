@@ -1,6 +1,8 @@
 package storage
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestSetAndGet(t *testing.T) {
 	s := newStorage()
@@ -9,9 +11,9 @@ func TestSetAndGet(t *testing.T) {
 		t.Error("expected error when retrieving non-existing value")
 	}
 
-	s.set("hasan", "hooshang")
+	s.set("hasan", []byte("hooshang"))
 	val, err := s.get("hasan")
-	if val != "hooshang" {
+	if string(val) != "hooshang" {
 		t.Error("expected to fetch value for the provided key")
 	}
 	if err != nil {

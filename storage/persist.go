@@ -16,7 +16,7 @@ const DELETE_COMMAND rune = 'd'
 type entryLog struct {
 	command rune
 	key     string
-	value   string
+	value   []byte
 }
 
 type writeAheadLog struct {
@@ -67,7 +67,7 @@ func (w *writeAheadLog) read(logs chan entryLog) {
 		if err != nil {
 			fmt.Println("decode error for val", err, string(v))
 		}
-		logs <- entryLog{command: 's', key: string(key), value: string(val)}
+		logs <- entryLog{command: 's', key: string(key), value: []byte(val)}
 	}
 	if err := sc.Err(); err != nil {
 		panic(err)
@@ -124,7 +124,9 @@ func newWriteAheadLog(ctx context.Context, dir string, interval time.Duration) *
 		go func() {
 			for range t.C {
 				err := wal.flush()
-				fmt.Println(err)
+				if err != nil {
+					fmt.Println(err)
+				}
 			}
 		}()
 	}
@@ -144,6 +146,7 @@ func newWriteAheadLog(ctx context.Context, dir string, interval time.Duration) *
 			case <-ctx.Done():
 				f.Close()
 				fmt.Println("file closed")
+				return
 			}
 		}
 	}()

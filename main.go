@@ -148,19 +148,32 @@ func main() {
 		return
 	}
 
-	if initiatorAddress == "" {
-		if os.Getenv("ONBOARDING_TYPE") == "MULTICASTING" {
-			udpAddress := "224.1.1.1:5008"
-			StartReceiver(address, udpAddress)
-			_, err := GetInitiator(ctx, address, udpAddress)
-			if err != nil {
-				panic(err)
-			}
-		} else {
-			panic("INITIATOR cannot be null")
-		}
+	onboardingType := os.Getenv("ONBOARDING_TYPE")
+	if onboardingType == "" {
+		onboardingType = "INITIATOR"
 	}
 
-	g.Start(ctx, initiatorAddress, 1*time.Second)
+	if onboardingType == "INITIATOR" {
+		if initiatorAddress == "" {
+			panic("INITIATOR cannot be null")
+		}
+		g.Catchup(ctx, initiatorAddress)
+		fmt.Println("cought up")
+	}
+
+	// if initiatorAddress == "" {
+	// 	if os.Getenv("ONBOARDING_TYPE") == "MULTICASTING" {
+	// 		udpAddress := "224.1.1.1:5008"
+	// 		StartReceiver(address, udpAddress)
+	// 		_, err := GetInitiator(ctx, address, udpAddress)
+	// 		if err != nil {
+	// 			panic(err)
+	// 		}
+	// 	} else {
+	// 		panic("INITIATOR cannot be null")
+	// 	}
+	// }
+
+	g.Start(ctx, 1*time.Second)
 	<-done
 }

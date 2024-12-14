@@ -1,6 +1,7 @@
 package datastore
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"net"
@@ -392,4 +393,72 @@ func TestCommitRequestForNonExistingPromise(t *testing.T) {
 	if res != nil && string(res.err) == "" {
 		t.Error("expected to receive errors")
 	}
+}
+
+func TestGet(t *testing.T) {
+	ctx := context.Background()
+	stg := storage.NewDataStore(ctx)
+	node1 := cluster.NewNode("localhost:", "localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
+	clstr1 := cluster.NewCluster(node1, 2, cluster.CONSISTENCY_LEVEL_ONE)
+	cp := connectionpool.NewConnectionPool(connectionpool.NewTcpConnector())
+	ds := NewDataStore(ctx, stg, clstr1, cp)
+	key := []byte("key")
+	proposal := storage.Promise((34235))
+	stg.Promise(proposal, string(key))
+	stg.Accept(proposal, string(key), []byte("value"))
+	stg.Commit(string(key), proposal)
+
+	client, server := net.Pipe()
+	go func() {
+		gr := getRequest{identifier: IDENTIFIER_DATA_STORE_GET_REQUEST, key: []byte("key")}
+		err := gr.encode(ctx, server)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+	}()
+
+	go func() {
+		var l uint32
+		binary.Read(client, binary.BigEndian, &l)
+
+		var identifier byte
+		binary.Read(client, binary.BigEndian, &identifier)
+
+		err := ds.handleIncoming(ctx, client, client, identifier)
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	ch := make(chan getResponse)
+	go func() {
+		var l uint32
+		err := binary.Read(server, binary.BigEndian, &l)
+		if err != nil {
+			panic(err)
+		}
+
+		b := make([]byte, l)
+		server.Read(b)
+		buf := bytes.NewBuffer(b)
+		gr, err := decodeGetResponse(buf)
+		if err != nil {
+			panic(err)
+		}
+		ch <- *gr
+	}()
+
+	gr := <-ch
+	if string(gr.value) != "value" {
+		t.Error("expected value was not received", string(gr.value))
+	}
+
+	// v, err := ds.Get(ctx, node1, key)
+	// if err != nil {
+	// 	t.Error(err)
+	// }
+	// if string(v) != "value" {
+	// 	t.Error("values mismatch")
+	// }
 }

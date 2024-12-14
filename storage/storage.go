@@ -2,6 +2,7 @@ package storage
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 )
 
@@ -24,6 +25,7 @@ func (s *storage) get(k string) ([]byte, error) {
 	if !ok {
 		return make([]byte, 0), errors.New("key not found")
 	}
+	fmt.Println(k, string(val))
 	return val, nil
 }
 

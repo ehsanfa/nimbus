@@ -1,8 +1,11 @@
 package datastore
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/ehsanfa/nimbus/cluster"
@@ -11,12 +14,9 @@ import (
 )
 
 type DataStore struct {
-	stg            *storage.DataStore
-	cp             *connectionpool.ConnectionPool
-	cluster        *cluster.Cluster
-	prepareReqChan chan prepareRequest
-	acceptReqChan  chan acceptRequest
-	commitReqChan  chan commitRequest
+	stg     *storage.DataStore
+	cp      *connectionpool.ConnectionPool
+	cluster *cluster.Cluster
 }
 
 const (
@@ -26,6 +26,8 @@ const (
 	IDENTIFIER_DATA_STORE_ACCEPT_RESPONSE
 	IDENTIFIER_DATA_STORE_COMMIT_REQUEST
 	IDENTIFIER_DATA_STORE_COMMIT_RESPONSE
+	IDENTIFIER_DATA_STORE_GET_REQUEST
+	IDENTIFIER_DATA_STORE_GET_RESPONSE
 )
 
 func (ds *DataStore) Prepare(ctx context.Context, node *cluster.Node, key []byte, proposal uint64) error {
@@ -37,7 +39,7 @@ func (ds *DataStore) Prepare(ctx context.Context, node *cluster.Node, key []byte
 	if err != nil {
 		return err
 	}
-	pr := prepareRequest{identifier: 11, key: key, proposal: proposal}
+	pr := prepareRequest{identifier: IDENTIFIER_DATA_STORE_PREPARE_REQUEST, key: key, proposal: proposal}
 	err = pr.encode(ctx, client)
 	if err != nil {
 		return err
@@ -61,7 +63,7 @@ func (ds *DataStore) Accept(ctx context.Context, node *cluster.Node, key []byte,
 	if err != nil {
 		return err
 	}
-	ar := acceptRequest{identifier: 13, key: key, proposal: proposal, value: value}
+	ar := acceptRequest{identifier: IDENTIFIER_DATA_STORE_ACCEPT_REQUEST, key: key, proposal: proposal, value: value}
 	err = ar.encode(ctx, client)
 	if err != nil {
 		return err
@@ -85,7 +87,7 @@ func (ds *DataStore) Commit(ctx context.Context, node *cluster.Node, key []byte,
 	if err != nil {
 		return err
 	}
-	cr := commitRequest{identifier: 15, key: key, proposal: proposal}
+	cr := commitRequest{identifier: IDENTIFIER_DATA_STORE_COMMIT_REQUEST, key: key, proposal: proposal}
 	err = cr.encode(ctx, client)
 	if err != nil {
 		return err
@@ -100,19 +102,42 @@ func (ds *DataStore) Commit(ctx context.Context, node *cluster.Node, key []byte,
 	return nil
 }
 
-// func (ds *dataStoreServer) Get(ctx context.Context, in *pbds.GetRequest) (*pbds.GetResponse, error) {
-// 	resp := &pbds.GetResponse{}
-// 	val, err := ds.d.dataStore.Get(in.Key)
-// 	if err != nil {
-// 		resp.Ok = false
-// 		resp.Error = err.Error()
-// 	} else {
-// 		resp.Ok = true
-// 	}
-// 	resp.Value = val
-// 	fmt.Println("get", in.Key, val)
-// 	return resp, nil
-// }
+func (ds *DataStore) Get(ctx context.Context, node *cluster.Node, key []byte) ([]byte, error) {
+	if ds.cluster.CurrentNode() == node {
+		return ds.stg.Get(string(key))
+	}
+	client, err := ds.cp.GetClient(node.DataStoreAddress)
+	if err != nil {
+		return make([]byte, 0), err
+	}
+	gr := getRequest{identifier: IDENTIFIER_DATA_STORE_GET_REQUEST, key: key}
+	err = gr.encode(ctx, client)
+	if err != nil {
+		return make([]byte, 0), err
+	}
+	fmt.Println("wrote to the node", node.GossipAddress)
+	var l uint32
+	err = binary.Read(client, binary.BigEndian, &l)
+	if err != nil {
+		return make([]byte, 0), err
+	}
+	b := make([]byte, l)
+	_, err = client.Read(b)
+	if err != nil {
+		return make([]byte, 0), err
+	}
+	buf := bytes.NewBuffer(b)
+	resp, err := decodeGetResponse(buf)
+	if err != nil {
+		return make([]byte, 0), err
+	}
+	fmt.Println("got resp from node", resp, node.GossipAddress)
+	if resp == nil {
+		return make([]byte, 0), errors.New("empty response")
+	}
+	fmt.Println("datastore", key, resp.value)
+	return resp.value, nil
+}
 
 func (ds *DataStore) prepare(ctx context.Context, key []byte, proposal uint64) (bool, error) {
 	err := ds.stg.Promise(storage.Promise(proposal), string(key))
@@ -138,63 +163,17 @@ func (ds *DataStore) commit(ctx context.Context, key []byte, proposal uint64) (b
 	return true, nil
 }
 
-func (ds *DataStore) handlePrepares(ctx context.Context) {
-	defer close(ds.prepareReqChan)
-
-	for {
-		select {
-		case pr := <-ds.prepareReqChan:
-			promised, err := ds.prepare(ctx, pr.key, pr.proposal)
-			errString := ""
-			if err != nil {
-				errString = err.Error()
-			}
-			pr.replyTo <- prepareResponse{identifier: IDENTIFIER_DATA_STORE_PREPARE_RESPONSE, promised: promised, err: []byte(errString)}
-		case <-ctx.Done():
-			return
-		}
+func (ds *DataStore) get(ctx context.Context, key []byte) ([]byte, error) {
+	val, err := ds.stg.Get(string(key))
+	if err != nil {
+		return make([]byte, 0), err
 	}
-}
-
-func (ds *DataStore) handleAccepts(ctx context.Context) {
-	defer close(ds.acceptReqChan)
-
-	for {
-		select {
-		case ar := <-ds.acceptReqChan:
-			accepted, err := ds.accept(ctx, ar.key, ar.proposal, ar.value)
-			errString := make([]byte, 0)
-			if err != nil {
-				errString = []byte(err.Error())
-			}
-			ar.replyTo <- acceptResponse{identifier: IDENTIFIER_DATA_STORE_ACCEPT_RESPONSE, accepted: accepted, err: errString}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-func (ds *DataStore) handleCommits(ctx context.Context) {
-	defer close(ds.commitReqChan)
-
-	for {
-		select {
-		case cr := <-ds.commitReqChan:
-			committed, err := ds.commit(ctx, cr.key, cr.proposal)
-			errString := make([]byte, 0)
-			if err != nil {
-				errString = []byte(err.Error())
-			}
-			cr.replyTo <- commitResponse{identifier: IDENTIFIER_DATA_STORE_COMMIT_RESPONSE, committed: committed, err: errString}
-		case <-ctx.Done():
-			return
-		}
-	}
+	return val, nil
 }
 
 func (ds *DataStore) handleIncoming(ctx context.Context, r io.Reader, w io.Writer, identifier byte) error {
 	switch identifier {
-	case 11:
+	case IDENTIFIER_DATA_STORE_PREPARE_REQUEST:
 		pr, err := decodePrepareRequest(r)
 		if err != nil {
 			return err
@@ -205,14 +184,8 @@ func (ds *DataStore) handleIncoming(ctx context.Context, r io.Reader, w io.Write
 			errString = err.Error()
 		}
 		resp := prepareResponse{identifier: IDENTIFIER_DATA_STORE_PREPARE_RESPONSE, promised: promised, err: []byte(errString)}
-		// pr.replyTo = make(chan prepareResponse)
-		// defer close(pr.replyTo)
-		// ds.prepareReqChan <- *pr
-		// resp := <-pr.replyTo
 		return resp.encode(ctx, w)
-	case 12:
-		// prepare response
-	case 13:
+	case IDENTIFIER_DATA_STORE_ACCEPT_REQUEST:
 		ar, err := decodeAcceptRequest(r)
 		if err != nil {
 			return err
@@ -223,14 +196,8 @@ func (ds *DataStore) handleIncoming(ctx context.Context, r io.Reader, w io.Write
 			errString = []byte(err.Error())
 		}
 		resp := acceptResponse{identifier: IDENTIFIER_DATA_STORE_ACCEPT_RESPONSE, accepted: accepted, err: errString}
-		// ar.replyTo = make(chan acceptResponse)
-		// defer close(ar.replyTo)
-		// ds.acceptReqChan <- *ar
-		// resp := <-ar.replyTo
 		return resp.encode(ctx, w)
-	case 14:
-		// accept response
-	case 15:
+	case IDENTIFIER_DATA_STORE_COMMIT_REQUEST:
 		cr, err := decodeCommitRequest(r)
 		if err != nil {
 			return err
@@ -242,13 +209,19 @@ func (ds *DataStore) handleIncoming(ctx context.Context, r io.Reader, w io.Write
 			errString = []byte(err.Error())
 		}
 		resp := commitResponse{identifier: IDENTIFIER_DATA_STORE_COMMIT_RESPONSE, committed: committed, err: errString}
-		// cr.replyTo = make(chan commitResponse)
-		// defer close(cr.replyTo)
-		// ds.commitReqChan <- *cr
-		// resp := <-cr.replyTo
 		return resp.encode(ctx, w)
-	case 16:
-		// commit response
+	case IDENTIFIER_DATA_STORE_GET_REQUEST:
+		gr, err := decodeGetRequest(r)
+		if err != nil {
+			return err
+		}
+		val, err := ds.get(ctx, gr.key)
+		errString := make([]byte, 0)
+		if err != nil {
+			errString = []byte(err.Error())
+		}
+		resp := getResponse{value: val, err: errString}
+		return resp.encode(ctx, w)
 	}
 
 	return nil
@@ -261,19 +234,12 @@ func NewDataStore(
 	cp *connectionpool.ConnectionPool,
 ) *DataStore {
 	ds := &DataStore{
-		// dataStore:      storage.NewDataStore(ctx),
-		stg:            stg,
-		cp:             cp,
-		cluster:        clstr,
-		prepareReqChan: make(chan prepareRequest),
-		acceptReqChan:  make(chan acceptRequest),
-		commitReqChan:  make(chan commitRequest),
+		stg:     stg,
+		cp:      cp,
+		cluster: clstr,
 	}
 
 	go ds.serve(ctx, clstr.CurrentNode().DataStoreAddress)
-	// go ds.handlePrepares(ctx)
-	// go ds.handleAccepts(ctx)
-	// go ds.handleCommits(ctx)
 
 	return ds
 }

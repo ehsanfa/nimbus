@@ -14,6 +14,51 @@ type getRequest struct {
 	key        []byte
 }
 
+func (gr *getRequest) encode(ctx context.Context, w io.Writer) error {
+	var b bytes.Buffer
+
+	if err := butils.EncodeIdentifier(gr.identifier, &b); err != nil {
+		return err
+	}
+
+	if err := butils.EncodeBytes(gr.key, &b); err != nil {
+		return err
+	}
+
+	return butils.ContextfulWrite(ctx, w, b)
+}
+
+func decodeGetRequest(r io.Reader) (*getRequest, error) {
+	gr := &getRequest{}
+
+	key, err := butils.DecodeStringToBytes(r)
+	if err != nil {
+		return gr, err
+	}
+	gr.key = key
+
+	return gr, err
+}
+
+type getResponse struct {
+	value []byte
+	err   []byte
+}
+
+func (gr *getResponse) encode(ctx context.Context, w io.Writer) error {
+	var b bytes.Buffer
+
+	if err := butils.EncodeBytes(gr.value, &b); err != nil {
+		return err
+	}
+
+	if err := butils.EncodeBytes(gr.err, &b); err != nil {
+		return err
+	}
+
+	return butils.ContextfulWrite(ctx, w, b)
+}
+
 type setRequest struct {
 	identifier byte
 	key        []byte

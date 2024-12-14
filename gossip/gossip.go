@@ -135,7 +135,7 @@ func (g *Gossip) gossip(ctx context.Context) {
 		return
 	}
 
-	fmt.Println("current versions", g.versions, g.cluster.Nodes())
+	// fmt.Println("current versions", g.versions, g.cluster.Nodes())
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -324,12 +324,13 @@ func (g *Gossip) syncWithCluster(n *gossipNode) error {
 	return g.cluster.UpdateNode(node)
 }
 
-func (g *Gossip) Start(ctx context.Context, initiatorAddress string, interval time.Duration) {
-	go g.serve(ctx, g.cluster.CurrentNode().GossipAddress)
-
+func (g *Gossip) Catchup(ctx context.Context, initiatorAddress string) {
 	catchupDone := make(chan bool)
 	go g.catchUp(ctx, initiatorAddress, catchupDone)
 	<-catchupDone
+}
+
+func (g *Gossip) Start(ctx context.Context, interval time.Duration) {
 
 	ticker := time.NewTicker(interval)
 	go func() {
@@ -432,6 +433,8 @@ func NewGossip(
 	}
 
 	g.updateToLatestVersion(clstr.CurrentNode())
+
+	go g.serve(ctx, g.cluster.CurrentNode().GossipAddress)
 
 	go g.handleNodeInfos(ctx)
 	go g.nodeInfoRequestBus(ctx)

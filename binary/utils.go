@@ -159,16 +159,12 @@ func DecodeStringToBytes(r io.Reader) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// var l uint32
-	// if err := binary.Read(r, binary.BigEndian, &l); err != nil {
-	// 	return nil, err
-	// }
 	if l == 0 {
-		return nil, nil
+		return make([]byte, 0), nil
 	}
 	bs := make([]byte, l)
 	if _, err := r.Read(bs); err != nil {
-		return nil, err
+		return make([]byte, 0), err
 	}
 
 	return bs, nil

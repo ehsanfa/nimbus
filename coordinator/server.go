@@ -5,10 +5,9 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"runtime"
-
-	"golang.org/x/time/rate"
 )
 
 func (c *Coordinator) serve(ctx context.Context, address string) {
@@ -16,6 +15,7 @@ func (c *Coordinator) serve(ctx context.Context, address string) {
 	if err != nil {
 		panic(err)
 	}
+	defer l.Close()
 	fmt.Println("serving for coordinator on", l.Addr().String())
 
 	go func() {
@@ -24,10 +24,10 @@ func (c *Coordinator) serve(ctx context.Context, address string) {
 		l.Close()
 	}()
 
-	rateLimiter := rate.NewLimiter(rate.Limit(10), 1)
+	// rateLimiter := rate.NewLimiter(rate.Limit(10), 1)
 
 	for {
-		rateLimiter.Wait(ctx)
+		// rateLimiter.Wait(ctx)
 		conn, err := l.Accept()
 		if err != nil {
 			if ctx.Err() != nil {
@@ -36,11 +36,16 @@ func (c *Coordinator) serve(ctx context.Context, address string) {
 			}
 			fmt.Println("listen error", err)
 		}
+		defer conn.Close()
 
 		go func() {
 			for {
 				rl := make(chan struct{}, runtime.NumCPU())
-				c.handleConnection(ctx, conn, rl)
+				err := c.handleConnection(ctx, conn, rl)
+				if err == io.EOF {
+					conn.Close()
+					return
+				}
 				<-rl
 				// if err != nil {
 				// 	fmt.Printf("error handling connection: %v", err)
@@ -51,22 +56,22 @@ func (c *Coordinator) serve(ctx context.Context, address string) {
 	}
 }
 
-func (c *Coordinator) handleConnection(ctx context.Context, conn net.Conn, rl chan struct{}) {
+func (c *Coordinator) handleConnection(ctx context.Context, conn net.Conn, rl chan struct{}) error {
 	var l uint32
 	if err := binary.Read(conn, binary.BigEndian, &l); err != nil {
-		fmt.Println(err)
-		return
+		rl <- struct{}{}
+		return err
 	}
 	b := make([]byte, l)
 	if _, err := conn.Read(b); err != nil {
-		fmt.Println(err)
-		return
+		rl <- struct{}{}
+		return err
 	}
 	buff := bytes.NewBuffer(b)
 	var identifier byte
 	if err := binary.Read(buff, binary.BigEndian, &identifier); err != nil {
-		fmt.Println(err)
-		return
+		rl <- struct{}{}
+		return err
 	}
 	go func() {
 		err := c.handleIncoming(ctx, buff, conn, identifier)
@@ -75,4 +80,5 @@ func (c *Coordinator) handleConnection(ctx context.Context, conn net.Conn, rl ch
 		}
 		rl <- struct{}{}
 	}()
+	return nil
 }

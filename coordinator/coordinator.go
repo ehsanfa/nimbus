@@ -22,11 +22,10 @@ const (
 )
 
 type Coordinator struct {
-	datastore      *datastore.DataStore
-	cluster        *cluster.Cluster
-	timeout        time.Duration
-	coreDataStore  *storage.DataStore
-	setRequestChan chan setRequest
+	datastore     *datastore.DataStore
+	cluster       *cluster.Cluster
+	timeout       time.Duration
+	coreDataStore *storage.DataStore
 }
 
 func (c *Coordinator) prepare(parentCtx context.Context, nodes []*cluster.Node, key []byte, proposal uint64) bool {
@@ -77,31 +76,37 @@ func (c *Coordinator) commit(parentCtx context.Context, nodes []*cluster.Node, k
 	return true
 }
 
-// func (c *Coordinator) get(ctx context.Context, key string) (string, bool, error) {
-// 	if !c.cluster.isHealthy() {
-// 		return "", false, errors.New("Not enough healthy replicas")
-// 	}
-// 	token := partition.GetToken(key)
-// 	nodes, err := c.cluster.getResponsibleNodes(token)
-// 	if err != nil {
-// 		return "", false, err
-// 	}
-// 	for _, node := range nodes {
-// 		c, err := getClient(node.address)
-// 		if err != nil {
-// 			return "", false, err
-// 		}
-// 		if !serverResp.Ok || err != nil {
-// 			fmt.Println(serverResp.Error)
-// 			resp.Error = serverResp.Error
-// 			resp.Ok = false
-// 			return resp, nil
-// 		}
-// 		resp.Value = serverResp.Value
-// 	}
-// 	resp.Ok = true
-// 	return resp, nil
-// }
+func (c *Coordinator) get(parentCtx context.Context, key []byte) ([]byte, error) {
+	if !c.cluster.IsHealthy() {
+		return make([]byte, 0), errors.New("not enough healthy replicas")
+	}
+	token := partition.GetToken(key)
+	nodes, err := c.cluster.GetResponsibleNodes(token)
+	if err != nil {
+		return make([]byte, 0), err
+	}
+	values := make([][]byte, len(nodes))
+	ctx, cancel := context.WithTimeout(parentCtx, c.timeout)
+	defer cancel()
+	g, ctx := errgroup.WithContext(ctx)
+	for i, node := range nodes {
+		fmt.Println("node", node.DataStoreAddress)
+		g.Go(func() error {
+			v, err := c.datastore.Get(ctx, node, key)
+			if err != nil {
+				return err
+			}
+			fmt.Println(v)
+			values[i] = v
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		fmt.Printf("get error: %v", err)
+		return make([]byte, 0), err
+	}
+	return values[0], nil
+}
 
 func (c *Coordinator) set(ctx context.Context, key []byte, value []byte) (bool, error) {
 	if !c.cluster.IsHealthy() {
@@ -129,27 +134,22 @@ func (c *Coordinator) set(ctx context.Context, key []byte, value []byte) (bool, 
 	return true, nil
 }
 
-// func (c *Coordinator) handleSet(ctx context.Context, ch chan setRequest) {
-// 	for {
-// 		select {
-// 		case sr := <-ch:
-// 			ok, err := c.set(ctx, sr.key, sr.value)
-// 			errString := make([]byte, 0)
-// 			if err != nil {
-// 				errString = []byte(err.Error())
-// 			}
-// 			resp := setResponse{identifier: IDENTIFIER_COORDINATOR_SET_RESPONSE, ok: ok, err: errString}
-// 			sr.replyTo <- resp
-// 		case <-ctx.Done():
-// 			return
-// 		}
-// 	}
-// }
-
 func (c *Coordinator) handleIncoming(ctx context.Context, r io.Reader, w io.Writer, identifier byte) error {
 	switch identifier {
 	case IDENTIFIER_COORDINATOR_GET_REQUEST:
-		// gr, err := decodeGetRequest(r)
+		gr, err := decodeGetRequest(r)
+		if err != nil {
+			return err
+		}
+		fmt.Println("get request decoded", gr.key)
+		val, err := c.get(ctx, gr.key)
+		errString := make([]byte, 0)
+		if err != nil {
+			errString = []byte(err.Error())
+		}
+		fmt.Println("received request for ", gr.key, val, err)
+		resp := getResponse{value: val, err: errString}
+		return resp.encode(ctx, w)
 	case IDENTIFIER_COORDINATOR_SET_REQUEST:
 		sr, err := decodeSetRequest(r)
 		if err != nil {
@@ -161,25 +161,18 @@ func (c *Coordinator) handleIncoming(ctx context.Context, r io.Reader, w io.Writ
 			errString = []byte(err.Error())
 		}
 		resp := setResponse{identifier: IDENTIFIER_COORDINATOR_SET_RESPONSE, ok: ok, err: errString}
-		// sr.replyTo = make(chan setResponse)
-		// defer close(sr.replyTo)
-		// c.setRequestChan <- *sr
-		// resp := <-sr.replyTo
 		return resp.encode(ctx, w)
 	}
 	return nil
 }
 
 func NewCoordinator(ctx context.Context, clstr *cluster.Cluster, ds *datastore.DataStore, cds *storage.DataStore, address string) *Coordinator {
-	setReqChan := make(chan setRequest)
 	c := &Coordinator{
 		ds,
 		clstr,
 		5 * time.Second,
 		cds,
-		setReqChan,
 	}
 	go c.serve(ctx, address)
-	// go c.handleSet(ctx, setReqChan)
 	return c
 }

@@ -308,3 +308,50 @@ func TestCommitResponseTimeout(t *testing.T) {
 		t.Error("expected to see errors")
 	}
 }
+
+func TestGetRequestEncoding(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	var b bytes.Buffer
+	gr := getRequest{identifier: IDENTIFIER_DATA_STORE_GET_REQUEST, key: []byte("test")}
+	err := gr.encode(ctx, &b)
+	if err != nil {
+		t.Error(err)
+	}
+
+	var size uint32
+	binary.Read(&b, binary.BigEndian, &size)
+
+	var identifier byte
+	binary.Read(&b, binary.BigEndian, &identifier)
+
+	grDecoded, err := decodeGetRequest(&b)
+	if err != nil {
+		t.Error(err)
+	}
+	if string(grDecoded.key) != "test" {
+		t.Error("expected to match the committed")
+	}
+}
+
+func TestGetResponseEncoding(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	var b bytes.Buffer
+	gr := getResponse{value: []byte("test"), err: make([]byte, 0)}
+	err := gr.encode(ctx, &b)
+	if err != nil {
+		t.Error(err)
+	}
+
+	var size uint32
+	binary.Read(&b, binary.BigEndian, &size)
+
+	grDecoded, err := decodeGetResponse(&b)
+	if err != nil {
+		t.Error(err)
+	}
+	if string(grDecoded.value) != "test" {
+		t.Error("expected to match the committed")
+	}
+}

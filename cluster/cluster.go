@@ -2,7 +2,6 @@ package cluster
 
 import (
 	"errors"
-	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -137,7 +136,6 @@ func (c *Cluster) UpdateNode(node *Node) error {
 		return c.AddNode(node)
 	}
 	c.ring.elemsById[node.Id].node = node
-	fmt.Println("here", node, c.ring.elemsById[node.Id].node)
 	return nil
 }
 

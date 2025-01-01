@@ -19,7 +19,7 @@ services:
       - 9192:9091
     environment:
       - PORT=9091
-      - INITIATOR=node6:9040
+      - INITIATOR=node1:9040
   
   node3:
     image: golang:1.22.5
@@ -41,7 +41,7 @@ services:
       - 9194:9091
     environment:
       - PORT=9091
-      - INITIATOR=node3:9040
+      - INITIATOR=node1:9040
 
   node5:
     image: golang:1.22.5
@@ -52,7 +52,7 @@ services:
       - 9195:9091
     environment:
       - PORT=9091
-      - INITIATOR=node4:9040
+      - INITIATOR=node1:9040
 
   node6:
     image: golang:1.22.5
@@ -63,7 +63,7 @@ services:
       - 9196:9091
     environment:
       - PORT=9091
-      - INITIATOR=node2:9040
+      - INITIATOR=node1:9040
 
   node7:
     image: golang:1.22.5
@@ -74,7 +74,7 @@ services:
       - 9197:9091
     environment:
       - PORT=9091
-      - INITIATOR=node6:9040
+      - INITIATOR=node1:9040
   
   node8:
     image: golang:1.22.5
@@ -85,7 +85,7 @@ services:
       - 9198:9091
     environment:
       - PORT=9091
-      - INITIATOR=node6:9040
+      - INITIATOR=node1:9040
 
   # node9:
   #   image: golang:1.22.5

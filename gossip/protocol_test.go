@@ -7,19 +7,16 @@ import (
 	"fmt"
 	"testing"
 	"time"
-
-	"github.com/ehsanfa/nimbus/partition"
 )
 
 func TestGossipNodeEncodeAndDecode(t *testing.T) {
 	var b bytes.Buffer
 	gn := gossipNode{
-		Id:               100,
-		GossipAddress:    "node1:9092",
-		DataStoreAddress: "localhost:9060",
-		Tokens:           []partition.Token{254354, 3265676, 975335},
-		Status:           2,
-		Version:          233453234,
+		id:            100,
+		gossipAddress: "node1:9092",
+		metadata:      []byte("metadata1"),
+		status:        NODE_STATUS_OK,
+		version:       233453234,
 	}
 	err := gn.encode(&b)
 	if err != nil {
@@ -31,22 +28,22 @@ func TestGossipNodeEncodeAndDecode(t *testing.T) {
 		t.Error(err)
 	}
 	fmt.Println(decodedGn)
-	if decodedGn.Id != gn.Id {
+	if decodedGn.id != gn.id {
 		t.Error("Id mismatch")
 	}
-	if decodedGn.GossipAddress != gn.GossipAddress {
+	if decodedGn.gossipAddress != gn.gossipAddress {
 		t.Error("GossipAddress mismatch")
 	}
-	if decodedGn.DataStoreAddress != gn.DataStoreAddress {
-		t.Error("DataStoreAddress mismatch")
+	if len(decodedGn.metadata) != len(gn.metadata) {
+		t.Error("metadata mismatch")
 	}
-	if len(decodedGn.Tokens) != len(gn.Tokens) {
-		t.Error("tokens mismatch")
+	if string(decodedGn.metadata) != string(gn.metadata) {
+		t.Error("metadata mismatch")
 	}
-	if decodedGn.Status != gn.Status {
+	if decodedGn.status != gn.status {
 		t.Error("status mismatch")
 	}
-	if decodedGn.Version != gn.Version {
+	if decodedGn.version != gn.version {
 		t.Error("version mismatch")
 	}
 }
@@ -86,38 +83,34 @@ func TestSpreadRequestEncodeAndDecode(t *testing.T) {
 }
 
 func TestCatchupResponseEncodeAndDecode(t *testing.T) {
-	nodes := []*gossipNode{
-		{
-			Id:               100,
-			GossipAddress:    "node1:9092",
-			DataStoreAddress: "localhost:9060",
-			Tokens:           []partition.Token{254354, 3265676, 975335},
-			Status:           2,
-			Version:          233453234,
+	nodes := map[uint64]*gossipNode{
+		100: {
+			id:            100,
+			gossipAddress: "node1:9092",
+			metadata:      []byte("metadata1"),
+			status:        2,
+			version:       233453234,
 		},
-		{
-			Id:               101,
-			GossipAddress:    "node1:9092",
-			DataStoreAddress: "localhost:9060",
-			Tokens:           []partition.Token{254354, 3265676, 975335},
-			Status:           2,
-			Version:          233453234,
+		101: {
+			id:            101,
+			gossipAddress: "node1:9092",
+			metadata:      []byte("metadata1"),
+			status:        2,
+			version:       233453234,
 		},
-		{
-			Id:               101,
-			GossipAddress:    "node1:9092",
-			DataStoreAddress: "localhost:9060",
-			Tokens:           []partition.Token{254354, 3265676, 975335},
-			Status:           2,
-			Version:          233453234,
+		102: {
+			id:            102,
+			gossipAddress: "node1:9092",
+			metadata:      []byte("metadata1"),
+			status:        2,
+			version:       233453234,
 		},
-		{
-			Id:               101,
-			GossipAddress:    "node1:9092",
-			DataStoreAddress: "localhost:9060",
-			Tokens:           []partition.Token{254354, 3265676, 975335},
-			Status:           2,
-			Version:          233453234,
+		103: {
+			id:            103,
+			gossipAddress: "node1:9092",
+			metadata:      []byte("metadata1"),
+			status:        2,
+			version:       233453234,
 		},
 	}
 	sr := catchupResponse{
@@ -169,12 +162,11 @@ func TestNodeInfoResponseEncodeDecode(t *testing.T) {
 	var b bytes.Buffer
 	ctx := context.Background()
 	gossipNode := gossipNode{
-		Id:               100,
-		GossipAddress:    "node1:9092",
-		DataStoreAddress: "localhost:9060",
-		Tokens:           []partition.Token{254354, 3265676, 975335},
-		Status:           2,
-		Version:          233453234,
+		id:            100,
+		gossipAddress: "node1:9092",
+		metadata:      []byte("metadata1"),
+		status:        2,
+		version:       233453234,
 	}
 	ir := nodeInfoResponse{identifier: 1, node: &gossipNode}
 	ir.encode(ctx, &b)
@@ -187,10 +179,10 @@ func TestNodeInfoResponseEncodeDecode(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if decodedIr.node.Id != 100 {
+	if decodedIr.node.id != 100 {
 		t.Error("unexpected nil Id")
 	}
-	if decodedIr.node.Version != 233453234 {
+	if decodedIr.node.version != 233453234 {
 		t.Error("unexpected nil Version")
 	}
 }

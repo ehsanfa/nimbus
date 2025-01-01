@@ -19,7 +19,7 @@ import (
 	"github.com/ehsanfa/nimbus/storage"
 )
 
-func getToken() []partition.Token {
+func getToken(tokensCount int) []partition.Token {
 	var token partition.Token
 
 	givenToken := os.Getenv("TOKEN")
@@ -47,7 +47,7 @@ func getToken() []partition.Token {
 		}
 		defer c.Close()
 		writer := bufio.NewWriter(c)
-		for range 1024 {
+		for range tokensCount {
 			token = partition.SuggestToken()
 			_, err := fmt.Fprintln(writer, token)
 			if err != nil {
@@ -126,19 +126,68 @@ func main() {
 	gossipAddress := fmt.Sprintf("%s:%d", hostname, 9040)
 	datastoreAddress := fmt.Sprintf("%s:%d", hostname, 9041)
 
-	self := cluster.NewNode(gossipAddress, datastoreAddress, getToken(), cluster.NODE_STATUS_OK)
-	cluster := cluster.NewCluster(self, 3, cluster.CONSISTENCY_LEVEL_ALL)
+	self := cluster.NewNode(datastoreAddress, getToken(1024), cluster.NODE_STATUS_OK)
+	clstr := cluster.NewCluster(self, 3, cluster.CONSISTENCY_LEVEL_ALL)
 	initiatorAddress := os.Getenv("INITIATOR")
 	cp := connectionpool.NewConnectionPool(
 		connectionpool.NewTcpConnector(),
 	)
-	g := gossip.NewGossip(ctx, cluster, cp, gossip.NODE_PICK_NEXT)
+
+	newNodeBus := make(chan gossip.Node)
+	nodeUpdateBus := make(chan gossip.NodeUpdate)
+	metadata := metadata{
+		nodeType:      NODE_TYPE_WORKER,
+		tokens:        self.Tokens,
+		serverAddress: datastoreAddress,
+	}
+	encodedMetadata, err := metadata.encode()
+	if err != nil {
+		panic(err)
+	}
+	g := gossip.NewGossip(gossip.Node{
+		Id:       uint64(self.Id),
+		Metadata: encodedMetadata,
+	}, cp, gossipAddress, gossip.NODE_PICK_NEXT, newNodeBus, nodeUpdateBus)
+	g.Setup(ctx)
+
+	addToClstr := func(m []byte) {
+		metadata, err := decodeMetadata(m)
+		if err != nil {
+			panic(err)
+		}
+		clstr.AddNode(cluster.NewNode(
+			metadata.serverAddress,
+			metadata.tokens,
+			cluster.NODE_STATUS_OK,
+		))
+	}
+
+	go func() {
+		for {
+			select {
+			case n := <-newNodeBus:
+				addToClstr(n.Metadata)
+			case n := <-nodeUpdateBus:
+				if n.IsReachable {
+					err := clstr.MarkAsOk(cluster.NodeId(n.Id))
+					if err != nil {
+						fmt.Println(err)
+					}
+				} else {
+					err := clstr.MarkAsUnreachable(cluster.NodeId(n.Id))
+					if err != nil {
+						fmt.Println(err)
+					}
+				}
+			}
+		}
+	}()
 
 	stg := storage.NewDataStore(ctx)
 
-	ds := datastore.NewDataStore(ctx, stg, cluster, cp)
+	ds := datastore.NewDataStore(ctx, stg, clstr, cp)
 
-	coordinator.NewCoordinator(ctx, cluster, ds, stg, address)
+	coordinator.NewCoordinator(ctx, clstr, ds, stg, address)
 
 	// d.d.dataStore.Rehydrate()
 

@@ -170,6 +170,10 @@ func DecodeStringToBytes(r io.Reader) ([]byte, error) {
 	return bs, nil
 }
 
+func DecodeBytes(r io.Reader) ([]byte, error) {
+	return DecodeStringToBytes(r)
+}
+
 func ContextfulWrite(ctx context.Context, w io.Writer, b bytes.Buffer) error {
 	res := make(chan error)
 	var bl bytes.Buffer

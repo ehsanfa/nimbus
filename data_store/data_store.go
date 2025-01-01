@@ -35,7 +35,7 @@ func (ds *DataStore) Prepare(ctx context.Context, node *cluster.Node, key []byte
 		_, err := ds.prepare(ctx, key, proposal)
 		return err
 	}
-	client, err := ds.cp.GetClient(node.DataStoreAddress)
+	client, err := ds.cp.GetClient(node.DataStoreAddress, "data_store_prepare")
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func (ds *DataStore) Accept(ctx context.Context, node *cluster.Node, key []byte,
 		_, err := ds.accept(ctx, key, proposal, value)
 		return err
 	}
-	client, err := ds.cp.GetClient(node.DataStoreAddress)
+	client, err := ds.cp.GetClient(node.DataStoreAddress, "data_store_accept")
 	if err != nil {
 		return err
 	}
@@ -83,7 +83,7 @@ func (ds *DataStore) Commit(ctx context.Context, node *cluster.Node, key []byte,
 		_, err := ds.commit(ctx, key, proposal)
 		return err
 	}
-	client, err := ds.cp.GetClient(node.DataStoreAddress)
+	client, err := ds.cp.GetClient(node.DataStoreAddress, "data_store_commit")
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func (ds *DataStore) Get(ctx context.Context, node *cluster.Node, key []byte) ([
 	if ds.cluster.CurrentNode() == node {
 		return ds.stg.Get(string(key))
 	}
-	client, err := ds.cp.GetClient(node.DataStoreAddress)
+	client, err := ds.cp.GetClient(node.DataStoreAddress, "data_store_get")
 	if err != nil {
 		return make([]byte, 0), err
 	}
@@ -115,7 +115,7 @@ func (ds *DataStore) Get(ctx context.Context, node *cluster.Node, key []byte) ([
 	if err != nil {
 		return make([]byte, 0), err
 	}
-	fmt.Println("wrote to the node", node.GossipAddress)
+	fmt.Println("wrote to the node")
 	var l uint32
 	err = binary.Read(client, binary.BigEndian, &l)
 	if err != nil {
@@ -131,7 +131,7 @@ func (ds *DataStore) Get(ctx context.Context, node *cluster.Node, key []byte) ([
 	if err != nil {
 		return make([]byte, 0), err
 	}
-	fmt.Println("got resp from node", resp, node.GossipAddress)
+	fmt.Println("got resp from node", resp)
 	if resp == nil {
 		return make([]byte, 0), errors.New("empty response")
 	}

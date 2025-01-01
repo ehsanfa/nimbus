@@ -7,15 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync"
 	"time"
 
-	cluster "github.com/ehsanfa/nimbus/cluster"
 	connectionpool "github.com/ehsanfa/nimbus/connection_pool"
-	"github.com/ehsanfa/nimbus/partition"
 )
-
-const PICK_NODE_MAX_TRIES int = 10
 
 const (
 	IDENTIFIER_GOSSIP_SPREAD_REQUEST byte = iota + 31
@@ -34,102 +29,42 @@ const (
 )
 
 type nodeInfoBus struct {
-	nodeId        cluster.NodeId
+	nodeId        uint64
 	targetAddress string
 }
 
 type Gossip struct {
-	versions            map[uint64]uint64
-	versionsMutex       sync.RWMutex
-	cluster             *cluster.Cluster
+	cluster             *cluster
 	catchupChan         chan catchupRequest
 	spreadChan          chan spreadRequest
 	cp                  *connectionpool.ConnectionPool
 	nodePickingStrategy nodePickingStrategy
-	lastPickedNode      *cluster.Node
 	nodeInfoBusChan     chan nodeInfoBus
 	nodeInfoChan        chan nodeInfoRequest
+	newNodeBus          chan<- Node
+	nodeUpdateBus       chan<- NodeUpdate
 }
 
-type gossipNode struct {
-	Id               uint64
-	GossipAddress    string
-	DataStoreAddress string
-	Tokens           []partition.Token
-	Status           uint8
-	Version          uint64
+type Node struct {
+	Id       uint64
+	Metadata []byte
 }
 
-func (g *Gossip) getVersion(id cluster.NodeId) (uint64, bool) {
-	g.versionsMutex.RLock()
-	v, ok := g.versions[uint64(id)]
-	g.versionsMutex.RUnlock()
-	return v, ok
+type NodeUpdate struct {
+	Id          uint64
+	IsReachable bool
 }
 
-func (g *Gossip) convertToNode(id cluster.NodeId) *gossipNode {
-	n := g.cluster.NodeFromId(id)
-	if n == nil {
-		return nil
+func (g *Gossip) pickNode() (*gossipNode, error) {
+	pickedNode := g.cluster.nextNode(g.nodePickingStrategy)
+	if pickedNode == nil {
+		return nil, errors.New("no node found in the queue")
 	}
-	v, ok := g.getVersion(id)
-	if !ok {
-		panic("unknown version")
-	}
-	return &gossipNode{
-		uint64(n.Id),
-		n.GossipAddress,
-		n.DataStoreAddress,
-		n.Tokens,
-		uint8(n.Status),
-		v,
-	}
-}
-
-func (g *Gossip) convertToNodes() []*gossipNode {
-	var nodes []*gossipNode
-	for _, n := range g.cluster.Nodes() {
-		nodes = append(nodes, g.convertToNode(n.Id))
-	}
-	return nodes
-}
-
-func (g *Gossip) nextNode() (*cluster.Node, error) {
-	switch g.nodePickingStrategy {
-	case NODE_PICK_RANDOM:
-		return g.cluster.RandomNode()
-	case NODE_PICK_NEXT:
-		if g.lastPickedNode == nil {
-			g.lastPickedNode = g.cluster.CurrentNode()
-		}
-		pn, err := g.cluster.NodeAfter(g.lastPickedNode)
-		if err != nil {
-			return nil, err
-		}
-		g.lastPickedNode = pn
-		return pn, nil
-	default:
-		panic("invalid node picking strategy")
-	}
-}
-
-func (g *Gossip) pickNode(maxRetries int) (*cluster.Node, error) {
-	tries := 0
-	var err error
-	var pickedNode *cluster.Node
-	for tries < maxRetries {
-		pickedNode, err = g.nextNode()
-		if pickedNode == g.cluster.CurrentNode() {
-			tries++
-			continue
-		}
-		return pickedNode, nil
-	}
-	return nil, err
+	return pickedNode, nil
 }
 
 func (g *Gossip) gossip(ctx context.Context) {
-	n, err := g.pickNode(PICK_NODE_MAX_TRIES)
+	n, err := g.pickNode()
 	if n == nil {
 		fmt.Println("failed to pick a node", err)
 		return
@@ -146,22 +81,22 @@ func (g *Gossip) gossip(ctx context.Context) {
 		g.handleFailure(n)
 		return
 	}
-	if !n.IsOk() {
+	if !n.isOk() {
 		g.handleRecovery(n)
 		fmt.Println("marked node as recovered")
 	}
 }
 
-func (g *Gossip) callToSpread(ctx context.Context, node *cluster.Node, done chan error) {
-	client, err := g.cp.GetClient(node.GossipAddress)
+func (g *Gossip) callToSpread(ctx context.Context, node *gossipNode, done chan error) {
+	client, err := g.cp.GetClient(node.gossipAddress, "gossip_spread")
 	if err != nil {
 		done <- err
 		return
 	}
 	sr := spreadRequest{
 		identifier:       IDENTIFIER_GOSSIP_SPREAD_REQUEST,
-		versions:         g.versions,
-		announcerAddress: g.cluster.CurrentNode().GossipAddress,
+		versions:         g.cluster.versions,
+		announcerAddress: g.cluster.currentNode.gossipAddress,
 	}
 	err = sr.encode(ctx, client)
 	if err != nil {
@@ -170,7 +105,7 @@ func (g *Gossip) callToSpread(ctx context.Context, node *cluster.Node, done chan
 	}
 	var l uint32
 	if err := binary.Read(client, binary.BigEndian, &l); err != nil {
-		fmt.Println(err)
+		fmt.Println(err, "callToSpread read l", l)
 		return
 	}
 	b := make([]byte, l)
@@ -178,7 +113,7 @@ func (g *Gossip) callToSpread(ctx context.Context, node *cluster.Node, done chan
 	buff := bytes.NewBuffer(b)
 	var identifier byte
 	if err := binary.Read(buff, binary.BigEndian, &identifier); err != nil {
-		fmt.Println(err)
+		fmt.Println(err, "callToSpread read id")
 		return
 	}
 	_, err = decodeSpreadResponse(buff)
@@ -189,7 +124,7 @@ func (g *Gossip) callToSpread(ctx context.Context, node *cluster.Node, done chan
 	done <- nil
 }
 
-func (g *Gossip) spread(ctx context.Context, n *cluster.Node) error {
+func (g *Gossip) spread(ctx context.Context, n *gossipNode) error {
 	done := make(chan error)
 	go g.callToSpread(ctx, n, done)
 	select {
@@ -202,7 +137,7 @@ func (g *Gossip) spread(ctx context.Context, n *cluster.Node) error {
 		return errors.New("context closed")
 	case err := <-done:
 		if err != nil {
-			fmt.Println("error while spreading", err, n.GossipAddress)
+			fmt.Println("error while spreading", err, n.gossipAddress)
 			g.handleFailure(n)
 			return err
 		}
@@ -210,51 +145,27 @@ func (g *Gossip) spread(ctx context.Context, n *cluster.Node) error {
 	return nil
 }
 
-func (g *Gossip) handleFailure(node *cluster.Node) {
-	node.MarkAsUnrechable()
-	retrievedNode := g.readInfo(node.Id)
-	if retrievedNode == nil {
-		panic(fmt.Sprintf("node %s was not found", node.GossipAddress))
-	}
-	retrievedNode.Status = cluster.NODE_STATUS_UNREACHABLE
-	g.updateToLatestVersion(retrievedNode)
-	g.cp.Invalidate(node.GossipAddress)
+func (g *Gossip) handleFailure(node *gossipNode) {
+	node.markAsUnreachable()
+	node.version = latestVersion()
+	g.cluster.updateVersion(node, node.version)
+	g.syncWithCluster(node)
+	g.cp.Invalidate(node.gossipAddress)
 }
 
-func (g *Gossip) handleRecovery(node *cluster.Node) {
-	node.MarkNodeAsOk()
-	retrievedNode := g.readInfo(node.Id)
-	if retrievedNode == nil {
-		panic(fmt.Sprintf("node %s was not found", node.GossipAddress))
-	}
-	retrievedNode.Status = cluster.NODE_STATUS_OK
-	g.updateToLatestVersion(retrievedNode)
-}
-
-func (g *Gossip) updateVersion(n *cluster.Node, version uint64) {
-	g.versionsMutex.Lock()
-	g.versions[uint64(n.Id)] = version
-	g.versionsMutex.Unlock()
-}
-
-func (g *Gossip) updateToLatestVersion(n *cluster.Node) {
-	g.updateVersion(n, uint64(time.Now().UnixMilli()))
-}
-
-func (g *Gossip) readInfo(id cluster.NodeId) *cluster.Node {
-	return g.cluster.NodeFromId(id)
+func (g *Gossip) handleRecovery(node *gossipNode) {
+	node.markAsOk()
+	g.syncWithCluster(node)
 }
 
 func (g *Gossip) handleGossip(sr spreadRequest) {
 	for id, externalVersion := range sr.versions {
-		nodeId := cluster.NodeId(id)
-		if nodeId == g.cluster.CurrentNode().Id {
+		if id == g.cluster.currentNode.id {
 			continue
 		}
-		knownVersion, ok := g.getVersion(nodeId)
+		knownVersion, ok := g.cluster.getVersion(id)
 		if !ok || knownVersion < externalVersion {
-			fmt.Println("new node discovered")
-			g.nodeInfoBusChan <- nodeInfoBus{nodeId, sr.announcerAddress}
+			g.nodeInfoBusChan <- nodeInfoBus{id, sr.announcerAddress}
 		}
 	}
 }
@@ -270,23 +181,23 @@ func (g *Gossip) nodeInfoRequestBus(ctx context.Context) {
 	}
 }
 
-func (g *Gossip) requestNodeInfo(id cluster.NodeId, from string) {
+func (g *Gossip) requestNodeInfo(id uint64, from string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	client, err := g.cp.GetClient(from)
+	client, err := g.cp.GetClient(from, "gossip_node_info")
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println(err, "here1")
 		return
 	}
-	cr := &nodeInfoRequest{identifier: IDENTIFIER_GOSSIP_NODE_INFO_REQUEST, nodeId: uint64(id)}
+	cr := &nodeInfoRequest{identifier: IDENTIFIER_GOSSIP_NODE_INFO_REQUEST, nodeId: id}
 	err = cr.encode(ctx, client)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println(err, "here2")
 		return
 	}
 	var l uint32
 	if err := binary.Read(client, binary.BigEndian, &l); err != nil {
-		fmt.Println(err)
+		fmt.Println(err, "here3")
 		return
 	}
 	b := make([]byte, l)
@@ -294,49 +205,56 @@ func (g *Gossip) requestNodeInfo(id cluster.NodeId, from string) {
 	buff := bytes.NewBuffer(b)
 	var identifier byte
 	if err := binary.Read(buff, binary.BigEndian, &identifier); err != nil {
-		fmt.Println(err)
+		fmt.Println(err, "here4")
+		return
+	}
+	if buff.Available() == 0 {
+		fmt.Println("no buff available")
 		return
 	}
 	resp, err := decodeNodeInfoResponse(buff)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println(err, "here5")
 		return
 	}
-	if resp.notFound {
+	if resp.node == nil {
 		return
 	}
-	g.syncWithCluster(resp.node)
+	g.cluster.add(resp.node)
 }
 
-func (g *Gossip) syncWithCluster(n *gossipNode) error {
-	tokens := []partition.Token{}
-	if n == nil {
-		return errors.New("nil node provided")
+func (g *Gossip) syncWithCluster(n *gossipNode) {
+	if !g.cluster.exists(n) {
+		g.addNewNode(n)
+	} else {
+		g.updateNode(n)
 	}
-	for _, t := range n.Tokens {
-		tokens = append(tokens, partition.Token(t))
-	}
-	if len(tokens) == 0 {
-		return errors.New("no tokens provided for the node")
-	}
-	node := cluster.NewNode(n.GossipAddress, n.DataStoreAddress, tokens, cluster.NodeStatus(n.Status))
-	g.updateVersion(node, n.Version)
-	return g.cluster.UpdateNode(node)
 }
 
-func (g *Gossip) Catchup(ctx context.Context, initiatorAddress string) {
-	catchupDone := make(chan bool)
-	go g.catchUp(ctx, initiatorAddress, catchupDone)
-	<-catchupDone
+func (g *Gossip) addNewNode(n *gossipNode) {
+	g.newNodeBus <- Node{
+		Id:       n.id,
+		Metadata: n.metadata,
+	}
+	g.cluster.add(n)
+}
+
+func (g *Gossip) updateNode(n *gossipNode) {
+	g.nodeUpdateBus <- NodeUpdate{
+		Id:          n.id,
+		IsReachable: n.isOk(),
+	}
+	g.cluster.updateVersion(n, n.version)
 }
 
 func (g *Gossip) Start(ctx context.Context, interval time.Duration) {
 
-	ticker := time.NewTicker(interval)
+	gossipTicker := time.NewTicker(interval)
 	go func() {
 		for {
 			select {
-			case <-ticker.C:
+			case <-gossipTicker.C:
+				fmt.Println(g.cluster.info, g.cluster.versions)
 				g.gossip(ctx)
 			case <-ctx.Done():
 				return
@@ -365,7 +283,7 @@ func (g *Gossip) handleNodeInfos(ctx context.Context) {
 	for {
 		select {
 		case nir := <-g.nodeInfoChan:
-			gn := g.convertToNode(cluster.NodeId(nir.nodeId))
+			gn := g.cluster.getNode(nir.nodeId)
 			nir.replyTo <- nodeInfoResponse{identifier: IDENTIFIER_GOSSIP_NODE_INFO_RESPONSE, node: gn}
 		case <-ctx.Done():
 			return
@@ -411,34 +329,37 @@ func (g *Gossip) handleIncoming(ctx context.Context, r io.Reader, w io.Writer, i
 }
 
 func NewGossip(
-	ctx context.Context,
-	clstr *cluster.Cluster,
+	currentNode Node,
 	cp *connectionpool.ConnectionPool,
+	serverAddress string,
 	nodePickingStrategy nodePickingStrategy,
+	newNodeBus chan<- Node,
+	nodeUpdateBus chan<- NodeUpdate,
 ) *Gossip {
-	versions := make(map[uint64]uint64)
 	catchupChan := make(chan catchupRequest)
 	spreadChan := make(chan spreadRequest)
 	nodeInfoChan := make(chan nodeInfoRequest)
 	nodeInfoBusChan := make(chan nodeInfoBus)
+	cluster := newCluster(currentNode, serverAddress)
 	g := &Gossip{
-		versions:            versions,
-		cluster:             clstr,
+		cluster:             cluster,
 		catchupChan:         catchupChan,
 		spreadChan:          spreadChan,
 		cp:                  cp,
 		nodePickingStrategy: nodePickingStrategy,
 		nodeInfoBusChan:     nodeInfoBusChan,
 		nodeInfoChan:        nodeInfoChan,
+		newNodeBus:          newNodeBus,
+		nodeUpdateBus:       nodeUpdateBus,
 	}
+	return g
+}
 
-	g.updateToLatestVersion(clstr.CurrentNode())
-
-	go g.serve(ctx, g.cluster.CurrentNode().GossipAddress)
+func (g *Gossip) Setup(ctx context.Context) {
+	go g.serve(ctx, g.cluster.currentNode.gossipAddress)
 
 	go g.handleNodeInfos(ctx)
 	go g.nodeInfoRequestBus(ctx)
 	go g.handleCatchups(ctx)
 	go g.handleSpreads(ctx)
-	return g
 }

@@ -15,21 +15,21 @@ func (g *Gossip) catchUp(ctx context.Context, initiatorAddress string, done chan
 	for {
 		select {
 		case <-ticker.C:
-			client, err := g.cp.GetClient(initiatorAddress)
+			client, err := g.cp.GetClient(initiatorAddress, "test")
 			if err != nil {
-				fmt.Println(err)
+				fmt.Println(err, "err ticker catchup")
 				return
 			}
-			cr := &catchupRequest{identifier: 33}
+			cr := &catchupRequest{identifier: IDENTIFIER_GOSSIP_CATCHUP_REQUEST}
 			err = cr.encode(ctx, client)
 			if err != nil {
-				fmt.Println(err)
+				fmt.Println(err, "err ticker catchup2")
 				done <- false
 				return
 			}
 			var l uint32
 			if err := binary.Read(client, binary.BigEndian, &l); err != nil {
-				fmt.Println(err)
+				fmt.Println(err, "err ticker catchup3")
 				done <- false
 				return
 			}
@@ -38,13 +38,13 @@ func (g *Gossip) catchUp(ctx context.Context, initiatorAddress string, done chan
 			buff := bytes.NewBuffer(b)
 			var identifier byte
 			if err := binary.Read(buff, binary.BigEndian, &identifier); err != nil {
-				fmt.Println(err)
+				fmt.Println(err, "a")
 				done <- false
 				return
 			}
 			resp, err := decodeCatchupResponse(buff)
 			if err != nil {
-				fmt.Println(err)
+				fmt.Println(err, "b")
 				done <- false
 				return
 			}
@@ -70,9 +70,15 @@ func (g *Gossip) handleCatchups(ctx context.Context) {
 	for {
 		select {
 		case cr := <-g.catchupChan:
-			cr.replyTo <- catchupResponse{identifier: 34, nodes: g.convertToNodes()}
+			cr.replyTo <- catchupResponse{identifier: IDENTIFIER_GOSSIP_CATCHUP_RESPONSE, nodes: g.cluster.info}
 		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+func (g *Gossip) Catchup(ctx context.Context, initiatorAddress string) {
+	catchupDone := make(chan bool)
+	go g.catchUp(ctx, initiatorAddress, catchupDone)
+	<-catchupDone
 }

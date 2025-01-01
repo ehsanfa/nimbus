@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	butils "github.com/ehsanfa/nimbus/binary"
-	"github.com/ehsanfa/nimbus/partition"
 )
 
 type catchupRequest struct {
@@ -27,7 +27,7 @@ func (cr *catchupRequest) encode(ctx context.Context, w io.Writer) error {
 
 type catchupResponse struct {
 	identifier byte
-	nodes      []*gossipNode
+	nodes      map[uint64]*gossipNode
 }
 
 func (cr *catchupResponse) encode(ctx context.Context, w io.Writer) error {
@@ -64,38 +64,36 @@ func decodeCatchupResponse(r io.Reader) ([]*gossipNode, error) {
 }
 
 func (g *gossipNode) encode(w io.Writer) error {
-	if err := binary.Write(w, binary.BigEndian, g.Id); err != nil {
+	var b bytes.Buffer
+
+	if err := binary.Write(&b, binary.BigEndian, g.id); err != nil {
 		return err
 	}
 
-	if err := butils.EncodeString(g.GossipAddress, w); err != nil {
+	if err := butils.EncodeString(g.gossipAddress, &b); err != nil {
 		return err
 	}
 
-	if err := butils.EncodeString(g.DataStoreAddress, w); err != nil {
+	if err := butils.EncodeBytes(g.metadata, &b); err != nil {
 		return err
 	}
 
-	if err := binary.Write(w, binary.BigEndian, uint32(len(g.Tokens))); err != nil {
-		return err
-	}
-	for _, token := range g.Tokens {
-		if err := binary.Write(w, binary.BigEndian, token); err != nil {
-			return err
-		}
-	}
-
-	if err := binary.Write(w, binary.BigEndian, g.Status); err != nil {
+	if err := binary.Write(&b, binary.BigEndian, g.status); err != nil {
 		return err
 	}
 
-	return binary.Write(w, binary.BigEndian, g.Version)
+	if err := binary.Write(&b, binary.BigEndian, g.version); err != nil {
+		return err
+	}
+
+	_, err := b.WriteTo(w)
+	return err
 }
 
 func decodeGossipNode(r io.Reader) (*gossipNode, error) {
 	gn := &gossipNode{}
 
-	if err := binary.Read(r, binary.BigEndian, &gn.Id); err != nil {
+	if err := binary.Read(r, binary.BigEndian, &gn.id); err != nil {
 		return nil, err
 	}
 
@@ -103,31 +101,19 @@ func decodeGossipNode(r io.Reader) (*gossipNode, error) {
 	if ga == nil || err != nil {
 		return nil, err
 	}
-	gn.GossipAddress = *ga
+	gn.gossipAddress = *ga
 
-	dsa, err := butils.DecodeString(r)
-	if dsa == nil || err != nil {
+	metadata, err := butils.DecodeBytes(r)
+	if metadata == nil || err != nil {
 		return nil, err
 	}
-	gn.DataStoreAddress = *dsa
+	gn.metadata = metadata
 
-	var tokensLen uint32
-	if err := binary.Read(r, binary.BigEndian, &tokensLen); err != nil {
-		return nil, err
-	}
-	for range tokensLen {
-		var token int64
-		if err := binary.Read(r, binary.BigEndian, &token); err != nil {
-			return nil, err
-		}
-		gn.Tokens = append(gn.Tokens, partition.Token(token))
-	}
-
-	if err := binary.Read(r, binary.BigEndian, &gn.Status); err != nil {
+	if err := binary.Read(r, binary.BigEndian, &gn.status); err != nil {
 		return nil, err
 	}
 
-	if err := binary.Read(r, binary.BigEndian, &gn.Version); err != nil {
+	if err := binary.Read(r, binary.BigEndian, &gn.version); err != nil {
 		return nil, err
 	}
 
@@ -166,7 +152,6 @@ func decodeNodeInfoRequest(r io.Reader) (*nodeInfoRequest, error) {
 type nodeInfoResponse struct {
 	identifier byte
 	node       *gossipNode
-	notFound   bool
 }
 
 func (nir *nodeInfoResponse) encode(ctx context.Context, w io.Writer) error {
@@ -176,11 +161,9 @@ func (nir *nodeInfoResponse) encode(ctx context.Context, w io.Writer) error {
 		return err
 	}
 
-	if err := binary.Write(&b, binary.BigEndian, nir.node == nil); err != nil {
-		return err
-	}
+	found := nir.node == nil
 
-	if nir.node != nil {
+	if found {
 		if err := nir.node.encode(&b); err != nil {
 			return err
 		}
@@ -190,20 +173,13 @@ func (nir *nodeInfoResponse) encode(ctx context.Context, w io.Writer) error {
 }
 
 func decodeNodeInfoResponse(r io.Reader) (*nodeInfoResponse, error) {
-	notFound, err := butils.DecodeBool(r)
+	gn, err := decodeGossipNode(r)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("decoded gossip node address", []byte(gn.gossipAddress))
 
-	var gn *gossipNode
-	if !*notFound {
-		gn, err = decodeGossipNode(r)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	nir := &nodeInfoResponse{node: gn, notFound: *notFound}
+	nir := &nodeInfoResponse{node: gn}
 	return nir, err
 }
 

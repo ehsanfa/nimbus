@@ -1,6 +1,7 @@
 package connectionpool
 
 import (
+	"fmt"
 	"net"
 	"sync"
 )
@@ -11,9 +12,10 @@ type ConnectionPool struct {
 	poolMutex sync.RWMutex
 }
 
-func (c *ConnectionPool) GetClient(address string) (net.Conn, error) {
+func (c *ConnectionPool) GetClient(address, identifier string) (net.Conn, error) {
+	key := fmt.Sprintf("%s_%s", address, identifier)
 	c.poolMutex.RLock()
-	conn, ok := c.pool[address]
+	conn, ok := c.pool[key]
 	c.poolMutex.RUnlock()
 	if ok {
 		return conn, nil
@@ -24,7 +26,7 @@ func (c *ConnectionPool) GetClient(address string) (net.Conn, error) {
 	}
 	c.poolMutex.Lock()
 	defer c.poolMutex.Unlock()
-	c.pool[address] = connection
+	c.pool[key] = connection
 	return connection, nil
 }
 

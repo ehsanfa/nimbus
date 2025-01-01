@@ -14,7 +14,7 @@ func TestGetClient(t *testing.T) {
 	for i := range 100 {
 		wg.Add(1)
 		go func() {
-			cp.GetClient(fmt.Sprintf("address_%d", i))
+			cp.GetClient(fmt.Sprintf("address_%d", i), "test")
 			wg.Done()
 		}()
 	}
@@ -22,7 +22,7 @@ func TestGetClient(t *testing.T) {
 	for i := range 100 {
 		wg.Add(1)
 		go func() {
-			cp.GetClient(fmt.Sprintf("address_%d", i))
+			cp.GetClient(fmt.Sprintf("address_%d", i), "test")
 			wg.Done()
 		}()
 	}
@@ -33,6 +33,6 @@ func BenchmarkGetClientNonExisting(b *testing.B) {
 	c, _ := net.Pipe()
 	cp := NewConnectionPool(NewMockConnector(c))
 	for n := 0; n < b.N; n++ {
-		cp.GetClient(fmt.Sprint(n))
+		cp.GetClient(fmt.Sprint(n), "test")
 	}
 }

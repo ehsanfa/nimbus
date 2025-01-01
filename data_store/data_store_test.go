@@ -16,7 +16,7 @@ import (
 func TestCore(t *testing.T) {
 	ctx := context.Background()
 	stg := storage.NewDataStore(ctx)
-	node1 := cluster.NewNode("localhost:", "localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
+	node1 := cluster.NewNode("localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
 	clstr1 := cluster.NewCluster(node1, 2, cluster.CONSISTENCY_LEVEL_ALL)
 	cp := connectionpool.NewConnectionPool(connectionpool.NewTcpConnector())
 	ds := NewDataStore(ctx, stg, clstr1, cp)
@@ -47,7 +47,7 @@ func TestCore(t *testing.T) {
 func TestSuccessfulPrepareRequest(t *testing.T) {
 	ctx := context.Background()
 	stg := storage.NewDataStore(ctx)
-	node1 := cluster.NewNode("localhost:", "localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
+	node1 := cluster.NewNode("localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
 	clstr1 := cluster.NewCluster(node1, 2, cluster.CONSISTENCY_LEVEL_ALL)
 	cp := connectionpool.NewConnectionPool(connectionpool.NewTcpConnector())
 	ds := NewDataStore(ctx, stg, clstr1, cp)
@@ -101,7 +101,7 @@ func TestSuccessfulPrepareRequest(t *testing.T) {
 func TestOutdatedPrepareRequest(t *testing.T) {
 	ctx := context.Background()
 	stg := storage.NewDataStore(ctx)
-	node1 := cluster.NewNode("localhost:", "localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
+	node1 := cluster.NewNode("localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
 	clstr1 := cluster.NewCluster(node1, 2, cluster.CONSISTENCY_LEVEL_ALL)
 	cp := connectionpool.NewConnectionPool(connectionpool.NewTcpConnector())
 	ds := NewDataStore(ctx, stg, clstr1, cp)
@@ -162,7 +162,7 @@ func TestOutdatedPrepareRequest(t *testing.T) {
 func TestSuccessfulAcceptRequest(t *testing.T) {
 	ctx := context.Background()
 	stg := storage.NewDataStore(ctx)
-	node1 := cluster.NewNode("localhost:", "localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
+	node1 := cluster.NewNode("localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
 	clstr1 := cluster.NewCluster(node1, 2, cluster.CONSISTENCY_LEVEL_ALL)
 	cp := connectionpool.NewConnectionPool(connectionpool.NewTcpConnector())
 	ds := NewDataStore(ctx, stg, clstr1, cp)
@@ -219,7 +219,7 @@ func TestSuccessfulAcceptRequest(t *testing.T) {
 func TestAcceptRequestForNonExistingPromise(t *testing.T) {
 	ctx := context.Background()
 	stg := storage.NewDataStore(ctx)
-	node1 := cluster.NewNode("localhost:", "localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
+	node1 := cluster.NewNode("localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
 	clstr1 := cluster.NewCluster(node1, 2, cluster.CONSISTENCY_LEVEL_ALL)
 	cp := connectionpool.NewConnectionPool(connectionpool.NewTcpConnector())
 	ds := NewDataStore(ctx, stg, clstr1, cp)
@@ -279,7 +279,7 @@ func TestAcceptRequestForNonExistingPromise(t *testing.T) {
 func TestSuccessfulCommitRequest(t *testing.T) {
 	ctx := context.Background()
 	stg := storage.NewDataStore(ctx)
-	node1 := cluster.NewNode("localhost:", "localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
+	node1 := cluster.NewNode("localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
 	clstr1 := cluster.NewCluster(node1, 2, cluster.CONSISTENCY_LEVEL_ALL)
 	cp := connectionpool.NewConnectionPool(connectionpool.NewTcpConnector())
 	ds := NewDataStore(ctx, stg, clstr1, cp)
@@ -338,7 +338,7 @@ func TestSuccessfulCommitRequest(t *testing.T) {
 func TestCommitRequestForNonExistingPromise(t *testing.T) {
 	ctx := context.Background()
 	stg := storage.NewDataStore(ctx)
-	node1 := cluster.NewNode("localhost:", "localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
+	node1 := cluster.NewNode("localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
 	clstr1 := cluster.NewCluster(node1, 2, cluster.CONSISTENCY_LEVEL_ALL)
 	cp := connectionpool.NewConnectionPool(connectionpool.NewTcpConnector())
 	ds := NewDataStore(ctx, stg, clstr1, cp)
@@ -398,7 +398,7 @@ func TestCommitRequestForNonExistingPromise(t *testing.T) {
 func TestGet(t *testing.T) {
 	ctx := context.Background()
 	stg := storage.NewDataStore(ctx)
-	node1 := cluster.NewNode("localhost:", "localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
+	node1 := cluster.NewNode("localhost:9060", []partition.Token{1}, cluster.NODE_STATUS_OK)
 	clstr1 := cluster.NewCluster(node1, 2, cluster.CONSISTENCY_LEVEL_ONE)
 	cp := connectionpool.NewConnectionPool(connectionpool.NewTcpConnector())
 	ds := NewDataStore(ctx, stg, clstr1, cp)

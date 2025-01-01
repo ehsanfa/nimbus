@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -176,11 +177,26 @@ func (c *Cluster) AddNode(node *Node) error {
 	for _, t := range node.Tokens {
 		c.nodesByToken.ReplaceOrInsert(nodeItem{node, t})
 	}
+	fmt.Println("node info", c.nodesByToken)
 	return nil
 }
 
-func (c *Cluster) removeNode(node *Node) error {
-	return c.ring.unlink(node)
+func (c *Cluster) MarkAsOk(id NodeId) error {
+	n := c.NodeFromId(id)
+	if n == nil {
+		return fmt.Errorf("node was not found: %d", id)
+	}
+	n.MarkNodeAsOk()
+	return nil
+}
+
+func (c *Cluster) MarkAsUnreachable(id NodeId) error {
+	n := c.NodeFromId(id)
+	if n == nil {
+		return fmt.Errorf("node was not found: %d", id)
+	}
+	n.MarkAsUnrechable()
+	return nil
 }
 
 func NewCluster(currentNode *Node, rf replicationFactor, cl consistencyLevel) *Cluster {

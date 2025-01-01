@@ -14,7 +14,6 @@ const (
 )
 
 type Node struct {
-	GossipAddress    string
 	DataStoreAddress string
 	Tokens           []partition.Token
 	Status           NodeStatus
@@ -33,6 +32,6 @@ func (n *Node) IsOk() bool {
 	return n.Status == NODE_STATUS_OK
 }
 
-func NewNode(gossipAddr, datastoreAddr string, tokens []partition.Token, status NodeStatus) *Node {
-	return &Node{gossipAddr, datastoreAddr, tokens, status, NodeId(tokens[0])}
+func NewNode(datastoreAddr string, tokens []partition.Token, status NodeStatus) *Node {
+	return &Node{datastoreAddr, tokens, status, NodeId(tokens[0])}
 }
